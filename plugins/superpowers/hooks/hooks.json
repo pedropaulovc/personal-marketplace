@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "session-start.sh"
+            "command": "./session-start.sh"
           }
         ]
       }
