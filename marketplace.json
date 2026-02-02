@@ -1,0 +1,22 @@
+{
+  "name": "pedropaulovc-agents-plugins-marketplace",
+  "description": "Pedro's personal plugin marketplace for Claude Code agents",
+  "owner": {
+    "name": "Pedro Paulo Vezza Campos",
+    "email": "pedro@vezza.com.br"
+  },
+  "plugins": [
+    {
+      "name": "pedropaulovc-agents-plugins",
+      "description": "Personal productivity plugins: PR comments handler, worktree reset, and GitHub issue creator",
+      "version": "1.0.0",
+      "source": "./plugins/pedropaulovc"
+    },
+    {
+      "name": "superpowers",
+      "description": "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques",
+      "version": "4.1.1",
+      "source": "./plugins/superpowers"
+    }
+  ]
+}
