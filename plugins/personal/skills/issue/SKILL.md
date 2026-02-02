@@ -1,5 +1,13 @@
 ---
 name: issue
+description: "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+---
+
+
+Lorem
+
+---
+name: issue
 description: Create a new GitHub issue in the current repository. Transforms terse bug reports or feature requests into well-structured, actionable GitHub issues.
 argument-hint: "[description]"
 disable-model-invocation: true
