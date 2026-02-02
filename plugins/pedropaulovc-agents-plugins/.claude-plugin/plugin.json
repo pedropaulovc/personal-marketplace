@@ -9,5 +9,11 @@
   "homepage": "https://github.com/pedropaulovc/agents-plugins",
   "repository": "https://github.com/pedropaulovc/agents-plugins",
   "license": "MIT",
-  "keywords": ["productivity", "pr-comments", "git", "github-issues"]
+  "keywords": ["productivity", "pr-comments", "git", "github-issues"],
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{"type": "command", "command": "python3 plugins/pedropaulovc-agents-plugins/hooks/bash-autofix.py"}]
+    }]
+  }
 }
