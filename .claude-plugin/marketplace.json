@@ -1,5 +1,5 @@
 {
-  "name": "pedropaulovc-agents-plugins-marketplace",
+  "name": "personal-marketplace",
   "description": "Pedro's personal plugin marketplace for Claude Code agents",
   "owner": {
     "name": "Pedro Paulo Vezza Campos",
@@ -7,10 +7,10 @@
   },
   "plugins": [
     {
-      "name": "pedropaulovc-agents-plugins",
+      "name": "personal",
       "description": "Personal productivity plugins: PR comments handler, worktree reset, and GitHub issue creator",
       "version": "1.0.0",
-      "source": "./plugins/pedropaulovc-agents-plugins"
+      "source": "./plugins/personal"
     },
     {
       "name": "superpowers",
