@@ -1,4 +1,4 @@
-# agents-plugins
+# personal-marketplace
 
 Personal plugin marketplace for Claude Code agents.
 
