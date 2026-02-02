@@ -1,7 +1,7 @@
 {
   "name": "personal",
   "description": "Personal productivity plugins: PR comments handler, worktree reset, and GitHub issue creator",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "author": {
     "name": "Pedro Paulo Vezza Campos",
     "email": "pedro@vezza.com.br"
@@ -9,6 +9,5 @@
   "homepage": "https://github.com/pedropaulovc/agents-plugins",
   "repository": "https://github.com/pedropaulovc/agents-plugins",
   "license": "MIT",
-  "keywords": ["productivity", "pr-comments", "git", "github-issues"],
-  "hooks": "./hooks/hooks.json"
+  "keywords": ["productivity", "pr-comments", "git", "github-issues"]
 }
