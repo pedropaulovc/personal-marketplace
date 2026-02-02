@@ -7,7 +7,7 @@ Personal plugin marketplace for Claude Code agents.
 Add this marketplace to your Claude Code configuration:
 
 ```bash
-/plugin marketplace add https://github.com/pedropaulovc/agents-plugins
+/plugin marketplace add pedropaulovc/agents-plugins
 /plugin add pedropaulovc@agents-plugins
 ```
 
