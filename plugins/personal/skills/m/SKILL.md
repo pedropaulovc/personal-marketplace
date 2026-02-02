@@ -1,3 +1,10 @@
+---
+name: m
+description: Reset current worktree to origin/main. Cleans stale branches, resets to main, and runs npm install on all worktrees.
+disable-model-invocation: true
+allowed-tools: Bash, AskUserQuestion
+---
+
 # Reset worktree to origin/main
 
 Perform the following steps to reset the current worktree branch to origin/main:
@@ -13,10 +20,10 @@ Perform the following steps to reset the current worktree branch to origin/main:
 
 4. **Run git clean**: If the user confirms cleanup (or if all untracked files are clearly throwaway), run `git clean -df` from the root of the repository to remove untracked files and directories.
 
-5. **Reset state**: Run
+5. **Reset state**: Run the m.sh script located next to this SKILL.md file:
 
 ```bash
-~/.claude/commands/m.sh
+bash "$(find ~/.claude -path '*/personal/skills/m/m.sh' 2>/dev/null | head -1)"
 ```
 
 Report the final status to the user when complete.

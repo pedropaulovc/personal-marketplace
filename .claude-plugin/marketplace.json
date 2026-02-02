@@ -8,14 +8,10 @@
   "plugins": [
     {
       "name": "personal",
-      "description": "Personal productivity plugins: PR comments handler, worktree reset, and GitHub issue creator",
-      "version": "1.0.0",
       "source": "./plugins/personal"
     },
     {
       "name": "superpowers",
-      "description": "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques",
-      "version": "4.1.1",
       "source": "./plugins/superpowers"
     }
   ]

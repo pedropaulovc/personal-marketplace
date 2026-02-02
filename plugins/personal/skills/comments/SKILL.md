@@ -1,3 +1,11 @@
+---
+name: comments
+description: Fetch active (unresolved) PR comments from GitHub and format them for LLM consumption. Use when user wants to review, respond to, or address PR feedback.
+argument-hint: "[pr-url-or-ref] [--include-resolved]"
+disable-model-invocation: true
+allowed-tools: Bash, Read, Edit, AskUserQuestion
+---
+
 # Fetch PR Comments for LLM Consumption
 
 Fetch active (unresolved) comments from a GitHub Pull Request and format them for LLM processing. Use `--include-resolved` to also include resolved threads.
@@ -9,10 +17,10 @@ Fetch active (unresolved) comments from a GitHub Pull Request and format them fo
 
 ## Instructions
 
-1. Run the comments.sh script to gather and format the comments:
+1. Run the comments.sh script to gather and format the comments. The script is located next to this SKILL.md file:
 
 ```bash
-~/.claude/commands/comments.sh $ARGUMENTS
+bash "$(find ~/.claude -path '*/personal/skills/comments/comments.sh' 2>/dev/null | head -1)" $ARGUMENTS
 ```
 
 2. The script outputs the path to the generated markdown file on stdout. Capture this path and read the file contents.
@@ -30,5 +38,5 @@ Fetch active (unresolved) comments from a GitHub Pull Request and format them fo
 5. Once you reach agreement with the user
    1. Make any code changes you agreed to
    2. Commit and push them
-   3. Send the replies to the comments in GitHub, use the gh command available in the markdown file 
+   3. Send the replies to the comments in GitHub, use the gh command available in the markdown file
    4. Ask the user if they agree to resolve the open threads, if so, execute the resolve thread command
