@@ -1,8 +1,19 @@
 #!/bin/bash
 set -e
 
+RESET_ALL=false
+FOLDER_NAME=""
+
+for arg in "$@"; do
+    if [[ "$arg" == "--all" ]]; then
+        RESET_ALL=true
+    else
+        FOLDER_NAME="$arg"
+    fi
+done
+
 CURRENT_WORKTREE=$(pwd)
-FOLDER_NAME="${1:-$(basename "$CURRENT_WORKTREE")}"
+FOLDER_NAME="${FOLDER_NAME:-$(basename "$CURRENT_WORKTREE")}"
 
 # Fetch and prune remote tracking branches
 git fetch --prune
@@ -23,6 +34,12 @@ git branch --unset-upstream 2>/dev/null || true
 
 # Install dependencies in current worktree
 npm install
+
+if [[ "$RESET_ALL" != "true" ]]; then
+    echo ""
+    echo "=== Current worktree updated ==="
+    exit 0
+fi
 
 # Rebase and npm install in all other worktrees
 git worktree list --porcelain | grep '^worktree ' | cut -d' ' -f2- | while read -r worktree_path; do
