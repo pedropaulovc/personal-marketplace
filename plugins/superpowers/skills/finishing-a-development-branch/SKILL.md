@@ -103,7 +103,7 @@ EOF
 )"
 ```
 
-Then: Cleanup worktree (Step 5)
+**Stay on the feature branch.** Do NOT switch back to the worktree/base branch — the PR may need revisions from review feedback. Only return to the base branch after the PR is merged.
 
 #### Option 3: Keep As-Is
 
@@ -135,7 +135,7 @@ Then: Cleanup worktree (Step 5)
 
 ### Step 5: Cleanup Worktree
 
-**For Options 1, 2, 4:**
+**For Options 1 and 4 only:**
 
 Check if in worktree:
 ```bash
@@ -154,7 +154,7 @@ git worktree remove <worktree-path>
 | Option | Merge | Push | Keep Worktree | Cleanup Branch |
 |--------|-------|------|---------------|----------------|
 | 1. Merge locally | ✓ | - | - | ✓ |
-| 2. Create PR | - | ✓ | ✓ | - |
+| 2. Create PR | - | ✓ | ✓ (stay on branch) | - |
 | 3. Keep as-is | - | - | ✓ | - |
 | 4. Discard | - | - | - | ✓ (force) |
 
@@ -167,6 +167,10 @@ git worktree remove <worktree-path>
 **Open-ended questions**
 - **Problem:** "What should I do next?" → ambiguous
 - **Fix:** Present exactly 4 structured options
+
+**Premature branch switch after PR**
+- **Problem:** Switching back to base branch after creating PR loses context for review iterations
+- **Fix:** Stay on feature branch after Option 2; only switch back after merge
 
 **Automatic worktree cleanup**
 - **Problem:** Remove worktree when might need it (Option 2, 3)
