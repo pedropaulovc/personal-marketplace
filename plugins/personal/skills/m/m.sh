@@ -32,6 +32,13 @@ git checkout "$FOLDER_NAME"
 git reset --hard origin/main
 git branch --unset-upstream 2>/dev/null || true
 
+# Nuke Neon dev/e2e branches for this worktree
+LETTER=$(basename "$CURRENT_WORKTREE" | grep -oP '(?:^|-)([a-zA-Z])$' | tail -c2 | tr '[:lower:]' '[:upper:]')
+if [[ -n "$LETTER" ]]; then
+    echo "Nuking Neon branches for worktree $LETTER..."
+    node scripts/neon-branch.js nuke "$LETTER" 2>&1 || true
+fi
+
 # Install dependencies in current worktree
 npm install
 
@@ -56,6 +63,13 @@ git worktree list --porcelain | grep '^worktree ' | cut -d' ' -f2- | while read 
     echo ""
     echo ""
     echo "=== Updating worktree: $worktree_path ==="
+
+    # Nuke Neon branches for this worktree
+    WT_LETTER=$(basename "$worktree_path" | grep -oP '(?:^|-)([a-zA-Z])$' | tail -c2 | tr '[:lower:]' '[:upper:]')
+    if [[ -n "$WT_LETTER" ]]; then
+        echo "Nuking Neon branches for worktree $WT_LETTER..."
+        node scripts/neon-branch.js nuke "$WT_LETTER" 2>&1 || true
+    fi
 
     # Rebase the worktree branch onto origin/main
     (
