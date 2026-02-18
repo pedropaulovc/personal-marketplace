@@ -182,6 +182,10 @@ For each task in order:
 **2b. Wait for tester report**
 - Tester messages back with: test file paths, test names, failure output (RED confirmed)
 - If tester asks questions: answer via SendMessage, let them continue
+- If tester requests a spec clarification on a public API or data contract:
+  - Forward the question to the **implementer** asking them to document the
+    answer in the spec (not just reply verbally)
+  - Once spec is updated, notify the tester to re-read it and continue
 
 **2c. TDD GREEN — Assign to implementer**
 - SendMessage to **implementer** with:
@@ -193,6 +197,12 @@ For each task in order:
 **2d. Wait for implementer report**
 - Implementer messages back with: what they built, test results, files changed, concerns
 - If implementer asks questions: answer via SendMessage, let them continue
+- If implementer reports a spec bug:
+  - **Minor / unambiguous** (e.g., typo, obvious omission with clear intent):
+    authorize the implementer to patch the spec and continue
+  - **Significant / ambiguous** (e.g., contradictory requirements, unclear
+    behavior): pause the task and escalate to the user for clarification
+    before the implementer proceeds
 
 **2e. PARALLEL review — Send both at once**
 

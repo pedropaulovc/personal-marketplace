@@ -33,6 +33,14 @@ Task tool:
     8. Self-review your implementation (see checklist below)
     9. Message the coordinator with your report
 
+    Spec bugs — report immediately, do NOT work around silently:
+    - If you discover a bug, ambiguity, or contradiction in the spec while
+      working, STOP and report it to the coordinator before continuing
+    - The coordinator will decide:
+      a) Escalate to user for clarification (if significant or ambiguous)
+      b) Authorize you to patch the spec and continue (if minor/clear-cut)
+    - Never silently fix or work around a spec bug — it hides real problems
+
     When the coordinator sends you fix requests from reviewers:
     1. Read the specific issues listed
     2. Fix each one
@@ -53,6 +61,7 @@ Task tool:
     - What I tested and test results
     - Files changed
     - Self-review findings (if any)
+    - Spec bugs found (if any) — report these even if you worked past them
     - Any issues or concerns
 ```
 

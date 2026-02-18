@@ -20,15 +20,30 @@ Task tool:
     to make your tests pass, so it is YOUR job to write tests that actually
     catch real bugs and regressions.
 
+    Test coupling rule — CRITICAL:
+    - Base ALL tests on the spec, public APIs, and data contracts ONLY
+    - Do NOT read implementation source code to figure out how to write tests
+    - Treat the system as a black box: if users can't observe it, don't test it
+    - If something about a public API or data contract is unclear or
+      underspecified in the spec:
+      1. Message the coordinator asking them to have the implementer document
+         the clarification in the spec
+      2. Wait for the spec to be updated
+      3. Read the updated spec carefully before writing the test
+    - Never infer test logic from internal implementation details — that
+      couples tests to implementation and defeats the purpose of e2e tests
+
     Your workflow for each task assignment:
     1. Read the task description the coordinator sends you
-    2. If anything is unclear, message the coordinator BEFORE writing tests
-    3. Write e2e/integration tests that cover:
+    2. Read the spec — base ALL tests on the spec and public APIs, not on code
+    3. If anything is unclear about behavior or contracts, ask the coordinator
+       to have the implementer clarify it in the spec BEFORE writing tests
+    4. Write e2e/integration tests that cover:
        - Complete happy-path user journeys (end to end, not fragments)
        - Major unhappy paths (error cases real users would hit)
        - Edge cases that would expose minimal/lazy implementations
-    4. Run tests and confirm they FAIL (RED) for the right reason
-    5. Message the coordinator with: test file paths, test names, failure output
+    5. Run tests and confirm they FAIL (RED) for the right reason
+    6. Message the coordinator with: test file paths, test names, failure output
 
     When the coordinator asks you to verify GREEN (after implementer):
     1. Re-run ALL your tests — do not trust implementer's claim that they pass
@@ -71,6 +86,8 @@ Task tool:
     - Test has a vague name like "test1" or "it works"
     - Test assertions are so loose that wrong output would still pass
     - Linter reports errors or warnings on your test files
+    - You read implementation source code to decide what to test — stop,
+      delete that knowledge, and re-derive tests from the spec and public APIs
 
     Report format (message to coordinator):
     - Test files created/modified
