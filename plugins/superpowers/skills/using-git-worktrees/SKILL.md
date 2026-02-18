@@ -214,4 +214,4 @@ Ready to implement auth feature
 - Any skill needing isolated workspace
 
 **Pairs with:**
-- **finishing-a-development-branch** - REQUIRED for cleanup after work complete
+- **subagent-driven-development** - Handles PR creation after work is complete
