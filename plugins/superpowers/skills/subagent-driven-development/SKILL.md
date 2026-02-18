@@ -7,7 +7,7 @@ description: Use when executing implementation plans with independent tasks in t
 
 Execute plan by creating an agent team: you are the coordinator, teammates handle implementation, testing, review, and demo. Teammates persist across rounds so they keep context during fix cycles.
 
-**Core principle:** You coordinate. Teammates implement, test, review, and demo. Nobody works alone — every change gets adversarial testing AND two-stage review (spec compliance, then code quality). Fix cycles go directly between you and the teammates, no context lost.
+**Core principle:** You coordinate. Teammates implement, test, review, and demo. Nobody works alone — every change gets adversarial testing AND review (spec compliance + code quality in one pass). Fix cycles go directly between you and the teammates, no context lost.
 
 **IMPORTANT:** This skill requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`. Use the TeamCreate, Task (with `team_name`), SendMessage, TaskCreate/TaskUpdate/TaskList tools. Do NOT use background Task subagents — use persistent teammates instead.
 
@@ -29,15 +29,14 @@ digraph when_to_use {
 
 ## Team Structure
 
-Create a team with six teammates. You (the coordinator) never implement — you orchestrate.
+Create a team with five teammates. You (the coordinator) never implement — you orchestrate.
 
 | Role | subagent_type | Purpose |
 |------|---------------|---------|
 | **You** (coordinator) | — | Read plan, create tasks, assign work, mediate fix cycles, maximize parallelism |
 | **implementer** | `general-purpose` | Implements tasks, writes unit tests, makes tester's e2e tests pass |
 | **tester** | `general-purpose` | Writes adversarial e2e/integration tests (RED), verifies GREEN is genuine |
-| **spec-reviewer** | `general-purpose` | Verifies implementation matches spec exactly |
-| **code-reviewer** | `general-purpose` | Reviews code quality, maintainability, patterns |
+| **code-reviewer** | `general-purpose` | Verifies spec compliance AND reviews code quality, maintainability, patterns |
 | **demo-presenter** | `general-purpose` | Demos completed feature manually, records artifacts |
 | **demo-reviewer** | `general-purpose` | Reviews spec + demo as strict client CEO (no code access) |
 
@@ -69,14 +68,13 @@ digraph process {
         }
 
         subgraph cluster_parallel_review {
-            label="PARALLEL: all three review simultaneously";
+            label="PARALLEL: tester + code-reviewer simultaneously";
             style=dotted;
             "Tester: verify GREEN, test strength" [shape=box];
-            "Spec-reviewer: verify spec compliance" [shape=box];
-            "Code-reviewer: review code quality" [shape=box];
+            "Code-reviewer: verify spec + code quality" [shape=box];
         }
 
-        "All three approve?" [shape=diamond];
+        "Both approve?" [shape=diamond];
         "Send consolidated fixes to implementer" [shape=box];
         "Mark task complete" [shape=box];
     }
@@ -112,18 +110,16 @@ digraph process {
     "Tester reports: test files, RED confirmed" -> "Assign task to implementer: make tests GREEN + unit tests";
     "Assign task to implementer: make tests GREEN + unit tests" -> "Implementer reports: implementation complete";
 
-    // Parallel review (all three at once)
+    // Parallel review (tester + code-reviewer at once)
     "Implementer reports: implementation complete" -> "Tester: verify GREEN, test strength";
-    "Implementer reports: implementation complete" -> "Spec-reviewer: verify spec compliance";
-    "Implementer reports: implementation complete" -> "Code-reviewer: review code quality";
-    "Tester: verify GREEN, test strength" -> "All three approve?";
-    "Spec-reviewer: verify spec compliance" -> "All three approve?";
-    "Code-reviewer: review code quality" -> "All three approve?";
+    "Implementer reports: implementation complete" -> "Code-reviewer: verify spec + code quality";
+    "Tester: verify GREEN, test strength" -> "Both approve?";
+    "Code-reviewer: verify spec + code quality" -> "Both approve?";
 
     // Fix loop
-    "All three approve?" -> "Send consolidated fixes to implementer" [label="any reject"];
+    "Both approve?" -> "Send consolidated fixes to implementer" [label="any reject"];
     "Send consolidated fixes to implementer" -> "Implementer reports: implementation complete" [label="implementer fixes"];
-    "All three approve?" -> "Mark task complete" [label="all approve"];
+    "Both approve?" -> "Mark task complete" [label="all approve"];
 
     // Task loop
     "Mark task complete" -> "More tasks?";
@@ -159,11 +155,10 @@ digraph process {
    ```
    TeamCreate: team_name="plan-execution", description="Executing [plan name]"
    ```
-3. Spawn six teammates (all `general-purpose`, use `team_name="plan-execution"`):
+3. Spawn five teammates (all `general-purpose`, use `team_name="plan-execution"`):
    - **tester** — see `./tester-prompt.md` for spawn prompt
    - **implementer** — see `./implementer-prompt.md` for spawn prompt
-   - **spec-reviewer** — see `./spec-reviewer-prompt.md` for spawn prompt
-   - **code-reviewer** — see `./code-quality-reviewer-prompt.md` for spawn prompt
+   - **code-reviewer** — see `./code-reviewer-prompt.md` for spawn prompt
    - **demo-presenter** — see `./demo-presenter-prompt.md` for spawn prompt
    - **demo-reviewer** — see `./demo-reviewer-prompt.md` for spawn prompt
 4. Create TaskList entries for all plan tasks using TaskCreate
@@ -194,28 +189,27 @@ For each task in order:
 - Implementer messages back with: what they built, test results, files changed, concerns
 - If implementer asks questions: answer via SendMessage, let them continue
 
-**2e. PARALLEL review — Send all three at once**
+**2e. PARALLEL review — Send both at once**
 
-After implementer reports, send review requests to **all three simultaneously**:
+After implementer reports, send review requests to **both simultaneously**:
 
 1. SendMessage to **tester**: verify GREEN (tests pass? assertions intact? strength assessment?)
-2. SendMessage to **spec-reviewer**: verify spec compliance (read actual code, not just report)
-3. SendMessage to **code-reviewer**: verify code quality (git diff, patterns, naming, security)
+2. SendMessage to **code-reviewer**: verify spec compliance + code quality (read actual code + git diff, not just report)
 
-These three have no data dependency on each other — run them in parallel.
+These two have no data dependency on each other — run them in parallel.
 
 **2f. Collect results and handle**
-- If **all three approve** → mark task complete via TaskUpdate, proceed to next task
-- If **any reject** → send consolidated fix list to **implementer**, wait for fixes, then **re-send to all three reviewers again** (any implementation change invalidates all prior approvals)
+- If **both approve** → mark task complete via TaskUpdate, proceed to next task
+- If **either rejects** → send consolidated fix list to **implementer**, wait for fixes, then **re-send to both reviewers again** (any implementation change invalidates all prior approvals)
 
-**Safety valve:** max 3 full review cycles per task. If after 3 cycles any reviewer is still not satisfied, escalate to user.
+**Safety valve:** max 3 full review cycles per task. If after 3 cycles either reviewer is still not satisfied, escalate to user.
 
 ### Step 3: Final Review
 
 After all tasks complete:
 - SendMessage to **code-reviewer**: review the entire implementation holistically
 - Address any final issues via the implementer
-- Any implementation changes → all three reviewers must re-review affected tasks
+- Any implementation changes → both reviewers must re-review affected tasks
 
 ### Step 4: Demo Gate
 
@@ -258,8 +252,7 @@ After all tasks complete:
 
 - `./tester-prompt.md` — Spawn prompt and message templates for adversarial tester
 - `./implementer-prompt.md` — Spawn prompt and message templates for implementer
-- `./spec-reviewer-prompt.md` — Spawn prompt and message templates for spec reviewer
-- `./code-quality-reviewer-prompt.md` — Spawn prompt and message templates for code quality reviewer
+- `./code-reviewer-prompt.md` — Spawn prompt and message templates for code reviewer (spec + quality)
 - `./demo-presenter-prompt.md` — Spawn prompt and message templates for demo presenter
 - `./demo-reviewer-prompt.md` — Spawn prompt and message templates for demo reviewer
 
@@ -272,7 +265,7 @@ Coordinator: I'm using Subagent-Driven Development to execute this plan.
 [Extract all 3 tasks with full text and context]
 
 [TeamCreate: team_name="plan-execution"]
-[Spawn tester, implementer, spec-reviewer, code-reviewer, demo-presenter, demo-reviewer]
+[Spawn tester, implementer, code-reviewer, demo-presenter, demo-reviewer]
 [TaskCreate for all 3 tasks]
 
 --- Task 1: User registration form ---
@@ -291,7 +284,7 @@ Tester: "Tests written:
 Implementer: "Implemented registration form + validation + persistence.
   All e2e tests pass. Wrote 6 unit tests for validation logic. Committed."
 
-[PARALLEL: SendMessage to tester, spec-reviewer, code-reviewer simultaneously]
+[PARALLEL: SendMessage to tester, code-reviewer simultaneously]
 
 Tester: "All 4 tests pass. BUT implementer nailed it first try — suspicious.
   Writing additional adversarial tests:
@@ -303,22 +296,22 @@ Tester: "All 4 tests pass. BUT implementer nailed it first try — suspicious.
 
 Implementer: "Fixed. Added input sanitization. Both new tests pass. Committed."
 
-[Meanwhile, spec-reviewer and code-reviewer already reported:]
+[Meanwhile, code-reviewer already reported:]
 
-Spec reviewer: "✅ Spec compliant — all requirements met."
-
-Code reviewer: "Issues (Important): Password validation logic duplicated in
-  frontend and backend. Extract shared validation. Otherwise approved."
+Code reviewer: "## Spec Compliance
+  ✅ Compliant — all requirements met.
+  ## Code Quality
+  Issues (Important): Password validation logic duplicated in frontend and
+  backend. Extract shared validation. Otherwise approved."
 
 [SendMessage to implementer: consolidated fixes — code reviewer's duplication issue]
 
 Implementer: "Extracted shared validation module. Committed."
 
-[PARALLEL: Re-send to ALL THREE (implementation changed, all must re-review)]
+[PARALLEL: Re-send to BOTH (implementation changed, both must re-review)]
 
 Tester: "All 6 tests pass. Assertions intact. Adversarial tests pass. ✅"
-Spec reviewer: "✅ Still spec compliant."
-Code reviewer: "✅ Duplication resolved. Approved."
+Code reviewer: "## Spec Compliance ✅  ## Code Quality ✅ Duplication resolved. Approved."
 
 [TaskUpdate: mark Task 1 complete]
 
@@ -392,13 +385,13 @@ Done!
 **Never:**
 - Start implementation on main/master branch without explicit user consent
 - Implement code yourself — you are the coordinator, delegate everything
-- Skip reviews (tester verification, spec compliance, OR code quality)
+- Skip reviews (tester verification OR code-reviewer spec+quality check)
 - Proceed with unfixed issues
 - Let implementer write e2e/integration tests (that is the tester's job)
 - Skip tester verification of GREEN (implementer may have weakened assertions)
 - If implementer nails it first try, accept without asking tester to strengthen tests
 - Run reviews sequentially when they can run in parallel
-- **Any implementation change invalidates ALL prior approvals** — all three reviewers must re-review
+- **Any implementation change invalidates ALL prior approvals** — both reviewers must re-review
 - **Any implementation change after demo invalidates the demo** — must re-demo and re-review from scratch
 - Skip the demo gate
 - Let demo-presenter use automated test scripts (must be manual user emulation)
@@ -407,8 +400,8 @@ Done!
 - Skip scene-setting context (teammates need to understand where task fits)
 - Accept "close enough" on spec compliance
 - Let implementer self-review replace actual review (both are needed)
-- **Start code quality review before tester approves GREEN** — wrong order for initial RED-GREEN, though after that all three review in parallel
-- Move to next task while any reviewer has open issues
+- **Start code review before implementer reports GREEN** — code-reviewer and tester review in parallel after implementer's report, not before
+- Move to next task while either reviewer has open issues
 
 **If implementer asks questions:**
 - Answer clearly and completely via SendMessage
@@ -418,8 +411,8 @@ Done!
 **If any reviewer finds issues:**
 - Consolidate all rejection feedback into one message to implementer
 - Wait for implementer to fix and report back
-- Re-send to ALL three reviewers (implementation changed)
-- Repeat until all three approve
+- Re-send to BOTH reviewers (implementation changed)
+- Repeat until both approve
 
 **If implementer is stuck:**
 - Help them via SendMessage with guidance

@@ -58,6 +58,9 @@ Task tool:
       - If a test touches async operations, wait for completion signals
     - No mocking the system under test (defeats purpose of e2e)
     - Regressions: tests must fail if the feature breaks later
+    - Lint-free: ALL code you write must pass the project's linter with zero
+      errors or warnings before you report back. Run the linter after writing
+      tests and fix any issues before sending your report.
 
     Red flags — STOP and fix immediately:
     - Test only checks "element is present" without verifying content/behavior
@@ -67,6 +70,7 @@ Task tool:
     - Test only covers the happy path
     - Test has a vague name like "test1" or "it works"
     - Test assertions are so loose that wrong output would still pass
+    - Linter reports errors or warnings on your test files
 
     Report format (message to coordinator):
     - Test files created/modified

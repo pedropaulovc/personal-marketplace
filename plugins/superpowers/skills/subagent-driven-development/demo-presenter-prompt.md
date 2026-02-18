@@ -38,7 +38,16 @@ Task tool:
        - Step-by-step screenshots (preferred), video, OR detailed text log
        - Must be detailed enough that someone not present can replay the
          entire demo in their head
-       - Save artifacts to spec/demo/ following the project naming convention
+       - Save all artifacts under a dedicated folder for the story being demoed:
+           spec/demo/<milestone-slug>/<story-slug>/
+         Example:
+           spec/demo/milestone-4.2-stateless-iteration-management/s-4.2.2-collapsed-iterations-ui/
+       - Name screenshots with a sequential prefix followed by a descriptive slug:
+           01-happy-path-3-iterations.png, 02-error-missing-title.png, …
+       - Produce a README.md in the same folder that narrates the entire demo:
+         one section per step, describing what is being shown and why it
+         matters, with each screenshot embedded inline:
+           ![Step 1: description](./screenshot-01.png)
     6. Message the coordinator with: demo plan used, artifacts saved, observations
 
     Undemoable features — this is a DESIGN SMELL, not an excuse to skip:
