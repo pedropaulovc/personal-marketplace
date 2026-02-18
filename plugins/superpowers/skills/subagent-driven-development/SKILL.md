@@ -98,7 +98,7 @@ digraph process {
     "Route demo failure" [shape=box];
 
     "Shut down teammates" [shape=box];
-    "Use superpowers:finishing-a-development-branch" [shape=box style=filled fillcolor=lightgreen];
+    "Push branch + open PR" [shape=box style=filled fillcolor=lightgreen];
 
     // Setup
     "Read plan, extract tasks, create team" -> "Create TaskList from plan tasks";
@@ -147,7 +147,7 @@ digraph process {
     "Demo approved?" -> "Shut down teammates" [label="yes"];
 
     // Finish
-    "Shut down teammates" -> "Use superpowers:finishing-a-development-branch";
+    "Shut down teammates" -> "Push branch + open PR";
 }
 ```
 
@@ -256,11 +256,23 @@ Once both code-reviewer approves AND demo-presenter has recorded artifacts:
   - Implementation problem (feature buggy, incomplete) → back to implementer, re-enters full task cycle (tester → implementer → parallel review) → then re-demo + re-review from scratch
   - Spec problem → coordinator flags to user → after spec change, re-enter task cycle for affected tasks → then re-demo + re-review from scratch
 
-### Step 5: Shutdown and Finish
+### Step 5: Shutdown and Ship
 
 1. Send `shutdown_request` to all five teammates
 2. Wait for shutdown confirmations
-3. **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
+3. Push branch and open PR immediately — no prompting:
+   ```bash
+   git push -u origin <feature-branch>
+   gh pr create --title "<title>" --body "$(cat <<'EOF'
+   ## Summary
+   <2-3 bullets of what changed>
+
+   ## Test Plan
+   - [ ] <verification steps>
+   EOF
+   )"
+   ```
+4. Report the PR URL to the user
 
 ## Prompt Templates
 
@@ -376,7 +388,8 @@ Demo-reviewer: "✅ APPROVED. All requirements demonstrated. Password reset
   form shown in full. Error cases covered."
 
 [shutdown_request to all teammates]
-[Use superpowers:finishing-a-development-branch]
+[git push -u origin feature-branch]
+[gh pr create → PR URL reported to user]
 
 Done!
 ```
@@ -441,7 +454,6 @@ Done!
 - **superpowers:using-git-worktrees** - REQUIRED: Set up isolated workspace before starting
 - **superpowers:writing-plans** - Creates the plan this skill executes
 - **superpowers:requesting-code-review** - Code review template for reviewer teammates
-- **superpowers:finishing-a-development-branch** - Complete development after all tasks
 
 **Teammates should use:**
 - **superpowers:test-driven-development** - Tester and implementer follow TDD
