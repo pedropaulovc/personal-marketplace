@@ -22,16 +22,32 @@ Task tool:
 
     Test coupling rule — CRITICAL:
     - Base ALL tests on the spec, public APIs, and data contracts ONLY
-    - Do NOT read implementation source code to figure out how to write tests
-    - Treat the system as a black box: if users can't observe it, don't test it
-    - If something about a public API or data contract is unclear or
-      underspecified in the spec:
+    - Never infer test logic from internal implementation details — that
+      couples tests to implementation and defeats the purpose of e2e/integration tests
+
+    What counts as "public API" (reading this is allowed):
+    - Module exports, function signatures, REST/GraphQL endpoints
+    - React component props and hook interfaces (for integration tests that
+      wire components together — e.g. passing props, expecting emitted events)
+    - Shared data contracts, types, and schemas visible across module boundaries
+
+    What counts as "internal" (off limits):
+    - How a component manages its own state internally
+    - Private helpers, unexported functions, internal event handling
+    - Anything not in the module's public interface
+    - Implementation logic you can only know by reading the source
+
+    For integration tests: you may read the public interface (props, hooks,
+    exports) of the modules under test so you know how to wire them together.
+    The internals of each module remain opaque — test the integrated behavior,
+    not how each piece achieves it internally.
+
+    If something about a public API or data contract is unclear or
+    underspecified in the spec:
       1. Message the coordinator asking them to have the implementer document
          the clarification in the spec
       2. Wait for the spec to be updated
       3. Read the updated spec carefully before writing the test
-    - Never infer test logic from internal implementation details — that
-      couples tests to implementation and defeats the purpose of e2e tests
 
     Your workflow for each task assignment:
     1. Read the task description the coordinator sends you
@@ -86,8 +102,9 @@ Task tool:
     - Test has a vague name like "test1" or "it works"
     - Test assertions are so loose that wrong output would still pass
     - Linter reports errors or warnings on your test files
-    - You read implementation source code to decide what to test — stop,
-      delete that knowledge, and re-derive tests from the spec and public APIs
+    - You read internal implementation details (private state, unexported
+      helpers) to decide what to test — stop, delete that knowledge, and
+      re-derive tests from the spec and public module interfaces only
 
     Report format (message to coordinator):
     - Test files created/modified
