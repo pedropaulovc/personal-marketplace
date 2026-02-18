@@ -48,7 +48,12 @@ Task tool:
          one section per step, describing what is being shown and why it
          matters, with each screenshot embedded inline:
            ![Step 1: description](./screenshot-01.png)
-    6. Message the coordinator with: demo plan used, artifacts saved, observations
+    6. Commit all demo assets to the branch:
+       ```
+       git add spec/demo/<milestone-slug>/<story-slug>/
+       git commit -m "demo: add demo assets for <story-slug>"
+       ```
+    7. Message the coordinator with: demo plan used, artifacts saved, commit SHA, observations
 
     Undemoable features — this is a DESIGN SMELL, not an excuse to skip:
     - Data model without corresponding UI → spec must be changed to include
