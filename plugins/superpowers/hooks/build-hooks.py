@@ -6,17 +6,13 @@ hooks/hooks.json with the skill content baked in as a static string.
 Run after any change to using-superpowers/SKILL.md or when bumping
 the plugin version.
 """
+import base64
 import json
 import os
 
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKILL_PATH = os.path.join(PLUGIN_ROOT, 'skills', 'using-superpowers', 'SKILL.md')
 HOOKS_PATH = os.path.join(PLUGIN_ROOT, 'hooks', 'hooks.json')
-
-
-def shell_single_quote(s: str) -> str:
-    """Wrap s in single quotes, escaping any embedded single quotes."""
-    return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
 def main():
@@ -40,7 +36,10 @@ def main():
     }
 
     hook_json = json.dumps(hook_output, ensure_ascii=False)
-    command = f"printf '%s\\n' {shell_single_quote(hook_json)}"
+    # base64 output is [A-Za-z0-9+/=] only — no shell quoting needed, no
+    # special characters to mangle, works identically in Git Bash and WSL.
+    hook_b64 = base64.b64encode(hook_json.encode('utf-8')).decode('ascii')
+    command = f"printf '%s' {hook_b64} | base64 -d"
 
     hooks = {
         "hooks": {
