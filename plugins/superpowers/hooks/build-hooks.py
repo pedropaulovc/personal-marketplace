@@ -51,7 +51,6 @@ def main():
                         {
                             "type": "command",
                             "command": command,
-                            "async": True,
                         }
                     ],
                 }
