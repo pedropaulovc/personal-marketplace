@@ -81,22 +81,21 @@ digraph process {
 
     "More tasks?" [shape=diamond];
 
-    subgraph cluster_final_review {
-        label="Final Review";
-        "Send final holistic review to code-reviewer" [shape=box];
-    }
-
-    subgraph cluster_demo {
-        label="Demo Gate (feature-level)";
+    subgraph cluster_final_phase {
+        label="PARALLEL: Final Review + Demo Prep";
         style=dashed;
+        "Send final holistic review to code-reviewer" [shape=box];
         "Assign demo to demo-presenter" [shape=box];
         "Feature demoable?" [shape=diamond];
         "Flag undemoable feature to user" [shape=box];
         "Demo-presenter records demo artifacts" [shape=box];
-        "Send spec + demo artifacts to demo-reviewer" [shape=box];
-        "Demo approved?" [shape=diamond];
-        "Route demo failure" [shape=box];
     }
+
+    "Final review issues?" [shape=diamond];
+    "Implementer applies final fixes" [shape=box];
+    "Send spec + demo artifacts to demo-reviewer" [shape=box];
+    "Demo approved?" [shape=diamond];
+    "Route demo failure" [shape=box];
 
     "Shut down teammates" [shape=box];
     "Use superpowers:finishing-a-development-branch" [shape=box style=filled fillcolor=lightgreen];
@@ -125,16 +124,22 @@ digraph process {
     "Mark task complete" -> "More tasks?";
     "More tasks?" -> "Assign task to tester: write failing e2e tests" [label="yes"];
     "More tasks?" -> "Send final holistic review to code-reviewer" [label="no"];
+    "More tasks?" -> "Assign demo to demo-presenter" [label="no"];
 
-    // Final review
-    "Send final holistic review to code-reviewer" -> "Assign demo to demo-presenter";
+    // Final review (parallel with demo prep)
+    "Send final holistic review to code-reviewer" -> "Final review issues?";
+    "Final review issues?" -> "Implementer applies final fixes" [label="yes"];
+    "Implementer applies final fixes" -> "Assign demo to demo-presenter" [label="re-demo required"];
+    "Final review issues?" -> "Send spec + demo artifacts to demo-reviewer" [label="no — await demo-presenter"];
 
-    // Demo gate
+    // Demo prep (parallel with final review)
     "Assign demo to demo-presenter" -> "Feature demoable?";
     "Feature demoable?" -> "Flag undemoable feature to user" [label="no"];
     "Flag undemoable feature to user" -> "Assign demo to demo-presenter" [label="after resolution"];
     "Feature demoable?" -> "Demo-presenter records demo artifacts" [label="yes"];
     "Demo-presenter records demo artifacts" -> "Send spec + demo artifacts to demo-reviewer";
+
+    // Demo review
     "Send spec + demo artifacts to demo-reviewer" -> "Demo approved?";
     "Demo approved?" -> "Route demo failure" [label="no"];
     "Route demo failure" -> "Assign demo to demo-presenter" [label="demo problem: re-demo"];
@@ -204,22 +209,14 @@ These two have no data dependency on each other — run them in parallel.
 
 **Safety valve:** max 3 full review cycles per task. If after 3 cycles either reviewer is still not satisfied, escalate to user.
 
-### Step 3: Final Review
+### Step 3: Final Review + Demo Prep (parallel)
 
-After all tasks complete:
-- SendMessage to **code-reviewer**: review the entire implementation holistically
-- Address any final issues via the implementer
-- Any implementation changes → both reviewers must re-review affected tasks
+After all tasks complete, send **both simultaneously** — no dependency between them:
 
-### Step 4: Demo Gate
+1. SendMessage to **code-reviewer**: review the entire implementation holistically
+2. SendMessage to **demo-presenter**: demo assignment (spec, completed tasks, demo plan)
 
-**4a. Assign to demo-presenter**
-- SendMessage to **demo-presenter** with:
-  - Full spec/plan
-  - List of completed tasks
-  - Demo plan from spec (if exists), or instruction to devise one
-
-**4b. Handle demoability**
+**Handle demo-presenter demoability** (while awaiting code-reviewer):
 - If feature is demoable: demo-presenter executes and records demo artifacts
 - If NOT demoable: demo-presenter reports WHY → coordinator must resolve:
   - Pull UI/frontend forward from future features
@@ -227,24 +224,31 @@ After all tasks complete:
   - Escalate to user if spec changes are needed
   - After resolution, re-assign to demo-presenter
 
-**4c. Demo review**
+**Handle code-reviewer final report**:
+- If **no issues**: wait for demo-presenter artifacts, then proceed to demo-reviewer
+- If **issues found**: send fixes to implementer → after implementer fixes, re-assign demo-presenter (demo is stale) → once both done, proceed to demo-reviewer
+
+**Any implementation change invalidates the demo. Always re-demo after implementation fixes.**
+
+### Step 4: Demo Review
+
+Once both code-reviewer approves AND demo-presenter has recorded artifacts:
+
 - SendMessage to **demo-reviewer** with:
   - Full spec/requirements (NO implementation code)
   - Demo artifacts from demo-presenter
   - Instruction: review as strict client CEO
 
-**4d. Handle demo review result**
+**Handle demo review result**:
 - If **approved** → proceed to shutdown
 - If **rejected**:
   - Demo execution problem (sloppy, incomplete walkthrough) → back to demo-presenter for re-demo → demo-reviewer re-reviews
   - Implementation problem (feature buggy, incomplete) → back to implementer, re-enters full task cycle (tester → implementer → parallel review) → then re-demo + re-review from scratch
   - Spec problem → coordinator flags to user → after spec change, re-enter task cycle for affected tasks → then re-demo + re-review from scratch
 
-**Any implementation change invalidates the demo. Always re-demo and re-review after implementation fixes.**
-
 ### Step 5: Shutdown and Finish
 
-1. Send `shutdown_request` to all six teammates
+1. Send `shutdown_request` to all five teammates
 2. Wait for shutdown confirmations
 3. **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
 
@@ -318,14 +322,12 @@ Code reviewer: "## Spec Compliance ✅  ## Code Quality ✅ Duplication resolved
 --- Task 2: Login flow --- [similar cycle] ---
 --- Task 3: Password reset --- [similar cycle] ---
 
---- Final holistic review ---
+--- Final holistic review + demo prep (parallel) ---
 
-[SendMessage to code-reviewer: "Final review of entire auth system"]
+[PARALLEL: SendMessage to code-reviewer: "Final review of entire auth system"
+           SendMessage to demo-presenter: spec + completed tasks]
+
 Code reviewer: "Consistent patterns, good test coverage, approved."
-
---- Demo gate ---
-
-[SendMessage to demo-presenter: spec + completed tasks]
 
 Demo-presenter: "Demo plan (devised — not in spec):
   1. Register new user with valid details
