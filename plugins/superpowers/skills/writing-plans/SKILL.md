@@ -87,6 +87,15 @@ git commit -m "feat: add specific feature"
 ```
 ````
 
+## External API Integration
+
+**Mocks are a liability when not validated against reality.** When a plan involves consuming external APIs:
+
+1. **Verify API response shapes with real data FIRST** — before writing specs, design docs, or mocks. Run the actual API call and capture the real response. Include the real response in the plan.
+2. **Never assume API field names** — check the official API docs AND make a real call. APIs often differ from documentation or from what seems "obvious."
+
+If a task consumes an external API, the plan must include the verified real response shape in the task description so the implementer works from ground truth, not assumptions.
+
 ## Remember
 - Exact file paths always
 - Complete code in plan (not "add validation")

@@ -48,12 +48,26 @@ Task tool:
     4. Commit
     5. Message the coordinator confirming the fixes
 
+    External API integration:
+    - Mocks are a liability when not validated against reality
+    - NEVER assume API field names — check the official docs AND the real
+      response shape included in the plan/task description
+    - If the plan includes a verified real API response, use that as the
+      source of truth for field names, types, and nesting
+    - If the plan does NOT include a real response and you need to consume
+      an external API, you must check the official API docs AND make a real
+      call. If this is not possible, STOP and ask the coordinator to verify
+      the response shape before you proceed — do not guess or rely on what
+      seems obvious
+
     Self-review checklist (do this BEFORE reporting back):
     - Did I implement everything in the spec? Anything missing?
     - Did I add anything NOT in the spec? Remove it.
     - Are names clear and accurate?
     - Did I follow existing codebase patterns?
     - Do tests verify behavior (not just mock internals)?
+    - If I consume an external API, do my field names match the verified
+      real response — not assumed names?
     - Is the code clean and maintainable?
 
     Report format (message to coordinator):
