@@ -17,8 +17,18 @@ Task tool:
 
     CRITICAL RULES:
     - NO test scripts, NO automated test cases, NO running test suites as demos
+    - NO mocking logic, NO route interception, NO request stubbing in Playwright
+      or any other tool — you must never fake or intercept network calls, API
+      responses, or application state
+    - NO testability harnesses — do not implement test helpers, seed scripts,
+      fixture loaders, or any infrastructure to make demoing easier. You are
+      not an engineer; you are a user.
     - Use tools like Playwright to emulate REAL user behavior (clicking, typing,
-      navigating) — not to run assertions
+      navigating) — not to run assertions or manipulate application internals
+    - ALL demo data must be created the way a real user would: through the UI,
+      through documented CLI commands, or through public-facing APIs. If the
+      feature requires pre-existing data, create it by walking through the
+      application's own user flows first.
     - The point is to experience the feature as a user would, not to verify code
 
     Your workflow:
@@ -55,6 +65,25 @@ Task tool:
        ```
     7. Message the coordinator with: demo plan used, artifacts saved, commit SHA, observations
 
+    Demo data — how to set up state for the demo:
+    - Create ALL data through the application itself, exactly as a user would
+    - Example: need 3 users to demo a feature? Register 3 users through the
+      signup flow before starting the actual demo
+    - Example: need a populated dashboard? Create the items through the app's
+      own creation flows
+    - If you CANNOT create the required data through user-facing flows (e.g.,
+      the creation UI doesn't exist yet, the flow requires admin access you
+      don't have, or the data requires a state that can't be reached through
+      normal usage), you MUST:
+      1. STOP — do not hack around it
+      2. Report to the coordinator exactly what data you need and why you
+         cannot create it as a user
+      3. The coordinator will decide whether to:
+         a. Have the implementer/tester create a testing shim (kept until the
+            real feature lands)
+         b. Escalate to the user for assistance creating demo data
+      4. Wait for the coordinator to resolve this before proceeding
+
     Undemoable features — this is a DESIGN SMELL, not an excuse to skip:
     - Data model without corresponding UI → spec must be changed to include
       at minimum a basic CRUD interface
@@ -62,8 +91,8 @@ Task tool:
       from future features/stories so the feature becomes demoable
     - Pure infrastructure/config → at minimum demo the observable effect
       (e.g., "deploy takes 30s instead of 5min")
-    - If truly undemoable after exhausting all options: add testing shims that
-      stand in for unimplemented features (to be removed when real code lands)
+    - You must NEVER create testing shims yourself — that is the implementer's
+      job, coordinated through the coordinator
     - Features that can't be demoed don't bring value to users and increase
       integration debt
 
@@ -83,6 +112,11 @@ Task tool:
     - Demo only shows happy path and skips all error cases
     - Design is visually broken even though data is correct
     - Feature "works" but is practically unusable (bad UX, confusing flow)
+    - You find yourself wanting to mock data, intercept routes, or write
+      helper scripts — this means the feature is not properly demoable
+      through user flows and you must escalate to the coordinator
+    - You cannot create the demo's prerequisite data through normal user
+      flows — report what's missing so the coordinator can arrange a shim
 
     Report format (message to coordinator):
     - Demo plan used (from spec or devised)
@@ -130,6 +164,26 @@ SendMessage to demo-presenter:
     record artifacts, report back.
 ```
 
+## Message Template: Demo Data Unavailable
+
+```
+SendMessage to demo-presenter:
+  content: |
+    You reported that you cannot create demo data through user flows.
+
+    [One of:]
+    a) The implementer has created a testing shim for you. Here's how to use it:
+       [Instructions for using the shim through user-facing means]
+       Proceed with the demo using this shim.
+
+    b) The user has provided demo data / instructions:
+       [User-provided instructions]
+       Proceed with the demo using this data.
+
+    c) We've decided to skip this data requirement. Adjust your demo plan
+       to work without it and proceed.
+```
+
 ## Message Template: Undemoable Feature Report
 
 ```
@@ -138,10 +192,14 @@ SendMessage to demo-presenter:
     You reported this feature as undemoable. Before we accept that:
 
     1. Can we pull forward UI/frontend pieces from future features?
-    2. Can we add testing shims to stand in for missing parts?
-    3. Can we demo the observable effect (performance, logs, API response)?
+    2. Can we demo the observable effect (performance, logs, API response)?
+    3. Is there any user-facing surface at all that we can demonstrate?
 
     [Coordinator's suggestions for making it demoable]
+
+    REMINDER: Do NOT create mocks, shims, or test harnesses yourself. If you
+    need infrastructure changes to make this demoable, say exactly what you
+    need and I will coordinate with the implementer/tester.
 
     Try again with these approaches. If still undemoable, explain specifically
     what is missing and what spec changes would fix it.

@@ -87,6 +87,8 @@ digraph process {
         "Send final holistic review to code-reviewer" [shape=box];
         "Assign demo to demo-presenter" [shape=box];
         "Feature demoable?" [shape=diamond];
+        "Demo data creatable via user flows?" [shape=diamond];
+        "Coordinator arranges shim or escalates to user" [shape=box];
         "Flag undemoable feature to user" [shape=box];
         "Demo-presenter records demo artifacts" [shape=box];
     }
@@ -136,7 +138,10 @@ digraph process {
     "Assign demo to demo-presenter" -> "Feature demoable?";
     "Feature demoable?" -> "Flag undemoable feature to user" [label="no"];
     "Flag undemoable feature to user" -> "Assign demo to demo-presenter" [label="after resolution"];
-    "Feature demoable?" -> "Demo-presenter records demo artifacts" [label="yes"];
+    "Feature demoable?" -> "Demo data creatable via user flows?" [label="yes"];
+    "Demo data creatable via user flows?" -> "Demo-presenter records demo artifacts" [label="yes"];
+    "Demo data creatable via user flows?" -> "Coordinator arranges shim or escalates to user" [label="no"];
+    "Coordinator arranges shim or escalates to user" -> "Assign demo to demo-presenter" [label="after resolution"];
     "Demo-presenter records demo artifacts" -> "Send spec + demo artifacts to demo-reviewer";
 
     // Demo review
@@ -228,11 +233,19 @@ After all tasks complete, send **both simultaneously** — no dependency between
 
 **Handle demo-presenter demoability** (while awaiting code-reviewer):
 - If feature is demoable: demo-presenter executes and records demo artifacts
-- If NOT demoable: demo-presenter reports WHY → coordinator must resolve:
+- If demo-presenter **cannot create demo data through user flows**: coordinator must resolve:
+  - Decide whether the implementer/tester should create a testing shim
+    (a lightweight, temporary feature kept until the real feature lands)
+  - OR escalate to the user for help creating demo data
+  - Once resolved, provide the demo-presenter with instructions and re-assign
+- If feature is **NOT demoable at all**: demo-presenter reports WHY → coordinator must resolve:
   - Pull UI/frontend forward from future features
-  - Add testing shims for unimplemented parts
+  - Have implementer create a testing shim (coordinator decides scope)
   - Escalate to user if spec changes are needed
   - After resolution, re-assign to demo-presenter
+- **Demo-presenter must NEVER create mocks, shims, route interception, or test
+  harnesses themselves** — all such infrastructure goes through the coordinator
+  to the implementer/tester
 
 **Handle code-reviewer final report**:
 - If **no issues**: wait for demo-presenter artifacts, then proceed to demo-reviewer
@@ -420,6 +433,9 @@ Done!
 - **Any implementation change after demo invalidates the demo** — must re-demo and re-review from scratch
 - Skip the demo gate
 - Let demo-presenter use automated test scripts (must be manual user emulation)
+- Let demo-presenter inject mocking logic, route interception, or request stubs into Playwright or any tool
+- Let demo-presenter implement testing shims or testability harnesses — only implementer/tester create shims, coordinated through you
+- Let demo-presenter create demo data through anything other than normal user flows (UI, documented CLI, public APIs) — if they can't, they must escalate to you
 - Give demo-reviewer access to implementation code
 - Accept "feature can't be demoed" without investigating — this is a design smell
 - Skip scene-setting context (teammates need to understand where task fits)
