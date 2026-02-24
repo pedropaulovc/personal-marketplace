@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/unrelated-issue-detector.py\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/unrelated-issue-detector\""
           }
         ]
       }

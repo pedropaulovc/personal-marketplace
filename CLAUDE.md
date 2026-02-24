@@ -6,3 +6,8 @@
   python3 plugins/superpowers/hooks/build-hooks.py
   ```
   This bakes the current `skills/using-superpowers/SKILL.md` into `hooks/hooks.json`.
+- When bumping the **personal** plugin version, also rebuild the hook binaries:
+  ```
+  python3 plugins/personal/hooks/build-hooks.py
+  ```
+  This cross-compiles the `unrelated-issue-detector` Rust binary for Linux and Windows.
