@@ -44,6 +44,22 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 ---
 ```
 
+## High-Level Spec (when derived from plan mode)
+
+If this implementation plan was created after a plan mode session (i.e. the user approved a plan via `ExitPlanMode`), include the approved plan as a high-level spec section immediately after the header. This gives the implementer the original requirements and design intent alongside the bite-sized tasks.
+
+```markdown
+## High-Level Spec
+
+> Copied from [original plan](path/to/plan-file.md) for reference.
+
+[Paste the full contents of the approved plan here verbatim]
+
+---
+```
+
+This section is **only** added when a plan mode plan exists. If the writing-plans skill was invoked directly (e.g. from brainstorming) without a preceding plan mode session, skip this section.
+
 ## Task Structure
 
 ````markdown
