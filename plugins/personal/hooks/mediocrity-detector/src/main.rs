@@ -39,7 +39,7 @@ const PATTERNS: &[&str] = &[
     "workaround",
     "temporary fix",
     "temporary solution",
-    "mock",
+    "temporary",
 ];
 
 /// Code markers matched case-sensitively.
@@ -262,15 +262,15 @@ mod tests {
     }
 
     #[test]
-    fn detects_mock() {
+    fn detects_temporary() {
         let mut findings = Vec::new();
         let mut seen = HashSet::new();
         scan_text(
-            "I'll mock the API response until the real endpoint is ready.",
+            "I added a temporary workaround for the race condition.",
             &mut findings,
             &mut seen,
         );
-        assert!(findings.iter().any(|f| f.contains("mock")));
+        assert!(findings.iter().any(|f| f.contains("temporary")));
     }
 
     #[test]
