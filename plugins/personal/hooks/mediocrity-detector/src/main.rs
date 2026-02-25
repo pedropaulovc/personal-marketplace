@@ -40,9 +40,6 @@ const PATTERNS: &[&str] = &[
     "temporary fix",
     "temporary solution",
     "temporary",
-    "pre-existing",
-    "isn't related to",
-    "aren't related to",
 ];
 
 /// Code markers matched case-sensitively.
