@@ -29,6 +29,7 @@ PLATFORM_TARGETS = [
 CRATES = [
     'unrelated-issue-detector',
     'windows-bash-guard',
+    'mediocrity-detector',
 ]
 
 
