@@ -14,15 +14,15 @@ use std::path::PathBuf;
 use std::process;
 
 const DISMISSAL_PATTERNS: &[&str] = &[
-    r"(?:existing|pre-existing|preexisting)\s+(?:issue|bug|problem|error|defect)",
-    r"(?:not|isn'?t|is\s+not)\s+(?:related|caused|introduced)\s+(?:to|by)\s+(?:this|our|the|my)",
-    r"unrelated\s+(?:issue|bug|problem|error|to\s+(?:this|our|the))",
-    r"separate\s+(?:issue|bug|problem|concern|matter)",
+    r"(?:existing|pre-existing|preexisting)\s+(?:issues?|bugs?|problems?|errors?|defects?)",
+    r"(?:not|isn'?t|aren'?t|is\s+not|are\s+not)\s+(?:related|caused|introduced)\s+(?:to|by)\s+(?:this|our|the|my)",
+    r"unrelated\s+(?:issues?|bugs?|problems?|errors?|to\s+(?:this|our|the))",
+    r"separate\s+(?:issues?|bugs?|problems?|concerns?|matters?)",
     r"(?:outside|beyond)\s+(?:the\s+)?scope\s+of\s+(?:this|our|the)",
     r"(?:was\s+)?already\s+(?:present|broken|failing|there)\s+(?:before|on\s+main|in\s+main)",
-    r"known\s+(?:issue|bug|problem|limitation)",
+    r"known\s+(?:issues?|bugs?|problems?|limitations?)",
     r"not\s+something\s+we\s+introduced",
-    r"(?:this|the)\s+(?:issue|bug|problem|error)\s+(?:is|was|appears?)\s+(?:to\s+be\s+)?(?:pre-existing|preexisting|unrelated)",
+    r"(?:this|the|these)\s+(?:issues?|bugs?|problems?|errors?)\s+(?:is|are|was|were|appears?)\s+(?:to\s+be\s+)?(?:pre-existing|preexisting|unrelated)",
 ];
 
 const INVESTIGATION_INSTRUCTIONS: &str = "\
