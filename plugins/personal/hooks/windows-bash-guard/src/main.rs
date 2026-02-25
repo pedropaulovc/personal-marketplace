@@ -1,16 +1,15 @@
-//! PreToolUse hook that detects common Windows+bash path pitfalls in Bash
-//! commands before execution, preventing cryptic runtime errors.
+//! PreToolUse hook that auto-fixes common Windows+bash path pitfalls in Bash
+//! commands before execution, avoiding a wasted round-trip.
 //!
-//! Detects:
-//! 1. `/dev/stdin` (stdout/stderr) in node commands — doesn't exist on Windows
-//! 2. Windows backslash paths in `node -e` inline code — JS escape sequences
-//!    like `\t` (tab), `\n` (newline), `\b` (backspace) silently corrupt paths
-//! 3. Unquoted Windows backslash paths in bash — backslash is an escape char,
-//!    so `ls C:\src` becomes `ls C:src`
-//! 4. Trailing `\"` in double-quoted Windows paths — `"C:\path\"` eats the
-//!    closing quote, causing `unexpected EOF`
+//! Fixes:
+//! 1. `/dev/stdin` → fd `0` in node commands (doesn't exist on Windows)
+//! 2. Backslash drive paths → forward slashes everywhere (fixes unquoted paths,
+//!    node -e escape bugs, and trailing `\"` in one pass)
+//!
+//! Returns JSON with `updatedInput` so Claude Code executes the corrected
+//! command transparently.
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::io::{self, Read};
 use std::process;
 
@@ -33,309 +32,200 @@ fn main() {
         process::exit(0);
     }
 
-    let command = match data
-        .get("tool_input")
-        .and_then(|v| v.get("command"))
+    let tool_input = match data.get("tool_input") {
+        Some(v) => v,
+        None => process::exit(0),
+    };
+
+    let description = tool_input
+        .get("description")
         .and_then(|v| v.as_str())
-    {
+        .unwrap_or("");
+
+    if description.contains("[no-rewrite]") {
+        process::exit(0);
+    }
+
+    let command = match tool_input.get("command").and_then(|v| v.as_str()) {
         Some(c) if !c.is_empty() => c,
         _ => process::exit(0),
     };
 
-    // Check each pattern; first match wins
-    let checks: &[fn(&str) -> Option<String>] = &[
-        check_dev_stdin,
-        check_trailing_backslash_quote,
-        check_node_eval_backslash_paths,
-        check_unquoted_backslash_paths,
-    ];
+    if let Some(fixed) = fix_command(command) {
+        let mut updated = tool_input.as_object().cloned().unwrap_or_default();
+        updated.insert("command".into(), Value::String(fixed.command));
 
-    for check in checks {
-        if let Some(msg) = check(command) {
-            block(&msg);
-        }
+        let output = json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": updated,
+                "additionalContext": fixed.context
+            }
+        });
+        println!("{}", output);
     }
 
     process::exit(0);
 }
 
-fn block(reason: &str) -> ! {
-    eprint!("{}", reason);
-    process::exit(2);
+// ---------------------------------------------------------------------------
+// Top-level fix orchestrator
+// ---------------------------------------------------------------------------
+
+struct FixResult {
+    command: String,
+    context: String,
 }
 
-// ---------------------------------------------------------------------------
-// Pattern 1: /dev/stdin in node commands
-// ---------------------------------------------------------------------------
+impl PartialEq<&str> for FixResult {
+    fn eq(&self, other: &&str) -> bool {
+        self.command == *other
+    }
+}
 
-/// Detect `/dev/stdin`, `/dev/stdout`, `/dev/stderr` in commands that invoke node.
-/// These paths don't exist on Windows — Node resolves them as `C:\dev\stdin`.
-fn check_dev_stdin(command: &str) -> Option<String> {
-    if !command.contains("node") {
+impl std::fmt::Debug for FixResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FixResult")
+            .field("command", &self.command)
+            .field("context", &self.context)
+            .finish()
+    }
+}
+
+/// Apply all fixes to the command. Returns `Some(FixResult)` if anything changed.
+fn fix_command(command: &str) -> Option<FixResult> {
+    let mut result = command.to_string();
+    let mut fixes: Vec<&str> = Vec::new();
+
+    // Fix 1: /dev/stdin → fd number in node commands
+    if fix_dev_stdin(&mut result) {
+        fixes.push("/dev/stdin replaced with fd number (doesn't exist on Windows)");
+    }
+
+    // Fix 2: backslash drive paths → forward slashes
+    let (fixed, path_changed) = fix_drive_paths(&result);
+    if path_changed {
+        result = fixed;
+        fixes.push("backslash paths converted to forward slashes (avoids bash escape issues)");
+    }
+
+    if fixes.is_empty() {
         return None;
     }
 
-    for dev_path in &["/dev/stdin", "/dev/stdout", "/dev/stderr"] {
-        if !command.contains(dev_path) {
-            continue;
-        }
+    let context = format!(
+        "windows-bash-guard hook rewrote this command: {}. Use forward-slash paths on Windows to avoid this. To bypass rewriting, add [no-rewrite] to the Bash tool description.",
+        fixes.join("; ")
+    );
 
-        return Some(format!(
-            "BLOCKED: {dev_path} does not exist on Windows (Node resolves it to C:\\dev\\stdin).\n\
-             \n\
-             Fix options:\n\
-             \n\
-             1. Write to a temp file first, then pass the path as an argument:\n\
-             \n\
-                some_command > \"$TEMP/data.json\"\n\
-                node -e \"const d = JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); ...\" \"%TEMP%\\data.json\"\n\
-             \n\
-             2. Use process.stdin in the node script:\n\
-             \n\
-                some_command | node -e \"let b=''; process.stdin.on('data',c=>b+=c); process.stdin.on('end',()=>{{ ... }});\""
-        ));
-    }
-
-    None
+    Some(FixResult { command: result, context })
 }
 
 // ---------------------------------------------------------------------------
-// Pattern 2: Trailing backslash-quote in double-quoted Windows paths
+// Fix 1: /dev/stdin → file descriptor
 // ---------------------------------------------------------------------------
 
-/// Detect `"C:\some\path\"` where the trailing `\"` escapes the closing quote
-/// in bash, causing `unexpected EOF while looking for matching '"'`.
+/// Replace `'/dev/stdin'` → `0`, `'/dev/stdout'` → `1`, `'/dev/stderr'` → `2`
+/// in commands that involve node. These paths don't exist on Windows;
+/// `readFileSync(0)` reads from fd 0 (stdin) and works cross-platform.
+fn fix_dev_stdin(command: &mut String) -> bool {
+    if !command.contains("node") {
+        return false;
+    }
+
+    let mut changed = false;
+    for (quoted, fd) in [
+        ("'/dev/stdin'", "0"),
+        ("\"/dev/stdin\"", "0"),
+        ("'/dev/stdout'", "1"),
+        ("\"/dev/stdout\"", "1"),
+        ("'/dev/stderr'", "2"),
+        ("\"/dev/stderr\"", "2"),
+    ] {
+        if command.contains(quoted) {
+            *command = command.replace(quoted, fd);
+            changed = true;
+        }
+    }
+
+    changed
+}
+
+// ---------------------------------------------------------------------------
+// Fix 2: Backslash drive paths → forward slashes
+// ---------------------------------------------------------------------------
+
+/// Find all Windows drive paths (`X:\...`) and convert backslashes to forward
+/// slashes. This fixes multiple failure modes in one pass:
 ///
-/// Real examples from transcripts:
-///   ls -la "C:\src\el400\main\.github\workflows\"
-///   grep -r "pattern" "C:\src\codjiflo\C\src\styles\" --include="*.css"
-fn check_trailing_backslash_quote(command: &str) -> Option<String> {
+/// - Unquoted `C:\src` → bash eats `\s` → `C:src` (fix: `C:/src`)
+/// - `"C:\path\"` → `\"` eats closing quote → EOF (fix: `"C:/path/"`)
+/// - `node -e "..C:\\src.."` → JS interprets `\s` as escape (fix: `C:/src`)
+/// - `node -e "..C:\\\\tmp.."` → multi-layer escaping hell (fix: `C:/tmp`)
+///
+/// Forward slashes work everywhere: bash, Node.js, and Windows APIs.
+fn fix_drive_paths(command: &str) -> (String, bool) {
     let bytes = command.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
+    let mut changed = false;
 
     while i < bytes.len() {
-        // Find opening double-quote
-        if bytes[i] != b'"' {
-            i += 1;
-            continue;
-        }
+        // Match drive letter path: [A-Za-z]:\ at a word boundary
+        if i + 2 < bytes.len()
+            && bytes[i].is_ascii_alphabetic()
+            && bytes[i + 1] == b':'
+            && bytes[i + 2] == b'\\'
+            && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric())
+        {
+            // Emit drive letter and colon
+            out.push(bytes[i]);
+            out.push(b':');
+            i += 2;
 
-        i += 1; // skip past opening quote
-        let mut has_drive_path = false;
+            // Walk the path, converting backslash runs to single /
+            loop {
+                if i >= bytes.len() {
+                    break;
+                }
 
-        while i < bytes.len() {
-            let b = bytes[i];
-
-            // Check for drive letter pattern: X:\ inside the quoted string
-            if !has_drive_path
-                && i + 2 < bytes.len()
-                && b.is_ascii_alphabetic()
-                && bytes[i + 1] == b':'
-                && bytes[i + 2] == b'\\'
-            {
-                has_drive_path = true;
-            }
-
-            // Found \" — if this quoted region contains a drive path, this
-            // is almost certainly a path separator being misread as an
-            // escaped quote. Check if what follows looks like it should be
-            // outside the string (space, operator, or end of command).
-            if b == b'\\' && i + 1 < bytes.len() && bytes[i + 1] == b'"' {
-                if has_drive_path {
-                    let after = bytes.get(i + 2);
-                    let looks_like_intended_end = match after {
-                        None => true,
-                        Some(b' ' | b'\t' | b'\n' | b';' | b'|' | b'&' | b'>') => true,
-                        _ => false,
-                    };
-                    if looks_like_intended_end {
-                        return Some(
-                            "BLOCKED: Trailing backslash before closing double-quote eats the quote.\n\
-                             \n\
-                             In bash, \\\" inside double quotes is an escaped literal quote, not a\n\
-                             path separator + closing quote. This causes:\n\
-                             \n\
-                                 unexpected EOF while looking for matching `\"'\n\
-                             \n\
-                             Fix: Use forward slashes (always work on Windows in bash):\n\
-                             \n\
-                                 ls -la \"C:/src/project/folder/\"     (works)\n\
-                                 ls -la \"C:\\src\\project\\folder\\\"   (broken: \\\" eats the quote)\n\
-                             \n\
-                             Or drop the trailing slash:\n\
-                             \n\
-                                 ls -la \"C:\\src\\project\\folder\""
-                                .to_string(),
-                        );
+                if bytes[i] == b'\\' {
+                    // Consume all consecutive backslashes (1, 2, or 4)
+                    while i < bytes.len() && bytes[i] == b'\\' {
+                        i += 1;
                     }
-                }
-                // Treat as escaped quote, skip both chars
-                i += 2;
-                continue;
-            }
+                    // Emit a single forward slash
+                    out.push(b'/');
+                    changed = true;
 
-            // Unescaped closing quote — end of this string
-            if b == b'"' {
-                break;
-            }
-
-            i += 1;
-        }
-
-        i += 1; // skip past closing quote (or move past EOF)
-    }
-
-    None
-}
-
-// ---------------------------------------------------------------------------
-// Pattern 3: Backslash paths in node -e
-// ---------------------------------------------------------------------------
-
-/// Detect Windows drive paths with backslashes inside `node -e` / `node --eval`.
-///
-/// After bash double-quote processing, `\\` becomes `\`. JavaScript then interprets
-/// `\t` as tab, `\n` as newline, `\b` as backspace, `\r` as carriage return, etc.
-/// This silently corrupts paths like `C:\tmp\file.json` → `C:<TAB>mp<NUL>ile.json`.
-///
-/// The fix is to use forward slashes: `C:/tmp/file.json` (works on Windows in Node).
-fn check_node_eval_backslash_paths(command: &str) -> Option<String> {
-    let node_e_pos = find_node_eval_pos(command)?;
-    let after_node_e = &command[node_e_pos..];
-
-    // Look for drive-letter paths with backslashes: C:\, D:\, etc.
-    let bytes = after_node_e.as_bytes();
-    for i in 0..bytes.len().saturating_sub(2) {
-        if !bytes[i].is_ascii_alphabetic() || bytes[i + 1] != b':' || bytes[i + 2] != b'\\' {
-            continue;
-        }
-        // Confirm it looks like a path (next char after backslash(es) is alphanumeric)
-        let rest = &bytes[i + 2..];
-        let after_slashes = rest.iter().position(|&b| b != b'\\').unwrap_or(rest.len());
-        if after_slashes >= rest.len() || !rest[after_slashes].is_ascii_alphanumeric() {
-            continue;
-        }
-        return Some(
-            "BLOCKED: Windows backslash paths in node -e cause JavaScript escape bugs.\n\
-             \n\
-             After bash processes the command, paths like C:\\tmp\\ reach JavaScript\n\
-             as C:\\t mp\\ where \\t is a TAB character. Same for \\n (newline),\n\
-             \\r (carriage return), \\b (backspace), etc.\n\
-             \n\
-             Fix: Use FORWARD SLASHES in all paths inside node -e:\n\
-             \n\
-                readFileSync('C:/tmp/file.json')       // works on Windows\n\
-                readFileSync('C:\\\\tmp\\\\file.json')  // broken: \\t = tab\n\
-             \n\
-             Or pass the path as a CLI argument:\n\
-             \n\
-                node -e \"...readFileSync(process.argv[1])...\" \"C:\\tmp\\file.json\""
-                .to_string(),
-        );
-    }
-
-    None
-}
-
-/// Find the position of `node -e` or `node --eval` in the command.
-fn find_node_eval_pos(command: &str) -> Option<usize> {
-    for pattern in &["node -e ", "node -e\"", "node -e'", "node --eval "] {
-        if let Some(pos) = command.find(pattern) {
-            return Some(pos);
-        }
-    }
-    None
-}
-
-// ---------------------------------------------------------------------------
-// Pattern 4: Unquoted Windows backslash paths in bash commands
-// ---------------------------------------------------------------------------
-
-/// Detect bare (unquoted) Windows drive paths like `ls C:\src\project`.
-///
-/// In bash, an unquoted backslash escapes the next character, so `\s` becomes
-/// just `s`, `\p` becomes `p`, etc. The path `C:\src\project` becomes
-/// `C:srcproject` — missing all directory separators.
-///
-/// Real examples from transcripts:
-///   ls -la C:\src\codeflow              → C:srccodeflow
-///   rm C:\src\codjiflo\main\file.json   → C:srccodjiflomainfle.json
-///   tail -50 C:\Users\pedro\...\out     → C:Userspedro...out
-fn check_unquoted_backslash_paths(command: &str) -> Option<String> {
-    let bytes = command.as_bytes();
-
-    // Walk through the command looking for drive-letter paths outside of quotes
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut prev_backslash = false;
-    let mut i = 0;
-
-    while i < bytes.len() {
-        let b = bytes[i];
-
-        // Track quoting state
-        if b == b'\'' && !in_double_quote && !prev_backslash {
-            in_single_quote = !in_single_quote;
-            prev_backslash = false;
-            i += 1;
-            continue;
-        }
-        if b == b'"' && !in_single_quote && !prev_backslash {
-            in_double_quote = !in_double_quote;
-            prev_backslash = false;
-            i += 1;
-            continue;
-        }
-
-        prev_backslash = b == b'\\' && !in_single_quote && !prev_backslash;
-
-        // Only check when outside all quotes
-        if !in_single_quote && !in_double_quote {
-            // Look for: drive letter + colon + single backslash + alpha
-            // In the raw command string, a single `\` means bash will eat it.
-            // Two `\\` means bash keeps one `\` — that's fine for most commands
-            // (though still wrong for node -e, handled by pattern 3).
-            //
-            // We specifically detect: X:\ followed by alpha, where the `\` is
-            // NOT doubled (i.e. not `X:\\`).
-            if i + 3 < bytes.len()
-                && b.is_ascii_alphabetic()
-                && bytes[i + 1] == b':'
-                && bytes[i + 2] == b'\\'
-                && bytes[i + 3] != b'\\'
-                && bytes[i + 3].is_ascii_alphanumeric()
-            {
-                // Make sure this is preceded by whitespace or start-of-command
-                // to avoid matching inside URLs like "http://C:\" or variable
-                // assignments
-                let preceded_by_separator = i == 0
-                    || matches!(
-                        bytes[i - 1],
-                        b' ' | b'\t' | b'\n' | b'(' | b';' | b'|' | b'&'
-                    );
-
-                if preceded_by_separator {
-                    return Some(
-                        "BLOCKED: Unquoted Windows path — bash will eat the backslashes.\n\
-                         \n\
-                         In bash, an unquoted backslash escapes the next character:\n\
-                         C:\\src\\project becomes C:srcproject (all separators lost).\n\
-                         \n\
-                         Fix: Use forward slashes (preferred) or quote the path:\n\
-                         \n\
-                             ls C:/src/project          (forward slashes — always works)\n\
-                             ls \"C:\\src\\project\"       (double-quoted — backslashes preserved)\n\
-                             ls 'C:\\src\\project'       (single-quoted — backslashes preserved)"
-                            .to_string(),
-                    );
+                    // If next char isn't a path char, path ended
+                    // (the / is a trailing separator, which is fine)
+                    if i >= bytes.len() || !is_path_char(bytes[i]) {
+                        break;
+                    }
+                } else if is_path_char(bytes[i]) {
+                    out.push(bytes[i]);
+                    i += 1;
+                } else {
+                    break;
                 }
             }
+            continue;
         }
 
+        out.push(bytes[i]);
         i += 1;
     }
 
-    None
+    (
+        String::from_utf8(out).unwrap_or_else(|_| command.to_string()),
+        changed,
+    )
+}
+
+/// Characters that can appear within a path component (between separators).
+fn is_path_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'+' | b'@' | b'#')
 }
 
 // ---------------------------------------------------------------------------
@@ -346,104 +236,193 @@ fn check_unquoted_backslash_paths(command: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    // Pattern 1: /dev/stdin
+    // -- Fix 1: /dev/stdin ---------------------------------------------------
+
     #[test]
-    fn detects_dev_stdin_in_node_pipe() {
-        let cmd = r#"cat data.json | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))""#;
-        assert!(check_dev_stdin(cmd).is_some());
+    fn fixes_dev_stdin_single_quotes() {
+        let cmd =
+            r#"cat data.json | node -e "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))""#;
+        let fixed = fix_command(cmd).unwrap();
+        assert!(fixed.command.contains("readFileSync(0,"));
+        assert!(!fixed.command.contains("/dev/stdin"));
+    }
+
+    #[test]
+    fn fixes_dev_stdin_double_quotes() {
+        let cmd =
+            r#"curl -s url | node -e 'JSON.parse(require("fs").readFileSync("/dev/stdin","utf8"))'"#;
+        let fixed = fix_command(cmd).unwrap();
+        assert!(fixed.command.contains("readFileSync(0,"));
     }
 
     #[test]
     fn ignores_dev_stdin_without_node() {
-        let cmd = "cat /dev/stdin";
-        assert!(check_dev_stdin(cmd).is_none());
+        // curl -D /dev/stderr works in MSYS2, don't touch it
+        let cmd = "curl -s -D /dev/stderr http://localhost:3000/api";
+        assert!(fix_command(cmd).is_none());
     }
 
-    // Pattern 2: Trailing backslash-quote
-    #[test]
-    fn detects_trailing_backslash_quote() {
-        let cmd = r#"ls -la "C:\src\el400\main\.github\workflows\""#;
-        assert!(check_trailing_backslash_quote(cmd).is_some());
-    }
+    // -- Fix 2: Drive paths --------------------------------------------------
 
     #[test]
-    fn detects_trailing_backslash_quote_in_grep() {
-        let cmd = r#"grep -r "pattern" "C:\src\codjiflo\C\src\styles\" --include="*.css""#;
-        assert!(check_trailing_backslash_quote(cmd).is_some());
-    }
-
-    #[test]
-    fn allows_properly_quoted_path() {
-        let cmd = r#"ls -la "C:\src\project""#;
-        assert!(check_trailing_backslash_quote(cmd).is_none());
-    }
-
-    // Pattern 3: Backslash paths in node -e
-    #[test]
-    fn detects_backslash_path_in_node_e() {
-        let cmd = r#"node -e "require('fs').readFileSync('C:\\src\\file.json','utf8')""#;
-        assert!(check_node_eval_backslash_paths(cmd).is_some());
-    }
-
-    #[test]
-    fn ignores_node_e_without_drive_path() {
-        let cmd = r#"node -e "console.log('hello')""#;
-        assert!(check_node_eval_backslash_paths(cmd).is_none());
-    }
-
-    #[test]
-    fn ignores_drive_path_before_node_e() {
-        let cmd = r#"cd C:\src && node -e "console.log('hello')""#;
-        assert!(check_node_eval_backslash_paths(cmd).is_none());
-    }
-
-    // Pattern 4: Unquoted backslash paths
-    #[test]
-    fn detects_unquoted_ls() {
+    fn fixes_unquoted_path() {
         let cmd = r"ls -la C:\src\codeflow";
-        assert!(check_unquoted_backslash_paths(cmd).is_some());
+        assert_eq!(fix_command(cmd).unwrap(), "ls -la C:/src/codeflow");
     }
 
     #[test]
-    fn detects_unquoted_rm() {
-        let cmd = r"rm C:\src\codjiflo\main\file.json";
-        assert!(check_unquoted_backslash_paths(cmd).is_some());
+    fn fixes_unquoted_rm_multiple_paths() {
+        let cmd = r"rm C:\src\a\file.json C:\src\b\file.json";
+        assert_eq!(
+            fix_command(cmd).unwrap(),
+            "rm C:/src/a/file.json C:/src/b/file.json"
+        );
     }
 
     #[test]
-    fn detects_unquoted_tail() {
-        let cmd = r"tail -50 C:\Users\pedro\AppData\Local\Temp\output.txt";
-        assert!(check_unquoted_backslash_paths(cmd).is_some());
-    }
-
-    #[test]
-    fn allows_double_quoted_path() {
+    fn fixes_double_quoted_path() {
         let cmd = r#"ls -la "C:\src\project""#;
-        assert!(check_unquoted_backslash_paths(cmd).is_none());
+        assert_eq!(fix_command(cmd).unwrap(), r#"ls -la "C:/src/project""#);
     }
 
     #[test]
-    fn allows_single_quoted_path() {
-        let cmd = r"ls -la 'C:\src\project'";
-        assert!(check_unquoted_backslash_paths(cmd).is_none());
+    fn fixes_trailing_backslash_quote() {
+        // "C:\path\" is broken in bash (\" eats quote).
+        // After fix: "C:/path/" — properly closed string.
+        let cmd = r#"ls -la "C:\src\el400\main\.github\workflows\""#;
+        assert_eq!(
+            fix_command(cmd).unwrap(),
+            r#"ls -la "C:/src/el400/main/.github/workflows/""#
+        );
     }
 
     #[test]
-    fn allows_forward_slash_path() {
+    fn fixes_trailing_backslash_quote_in_grep() {
+        let cmd = r#"grep -r "pattern" "C:\src\codjiflo\C\src\styles\" --include="*.css""#;
+        assert_eq!(
+            fix_command(cmd).unwrap(),
+            r#"grep -r "pattern" "C:/src/codjiflo/C/src/styles/" --include="*.css""#
+        );
+    }
+
+    #[test]
+    fn fixes_double_backslash_path() {
+        // C:\\ in raw command → C:\ in bash (correct but fragile).
+        // Converting to C:/ is equally correct and more portable.
+        let cmd = r"grep pattern C:\\src\\codjiflo\\AGENTS.md";
+        assert_eq!(
+            fix_command(cmd).unwrap(),
+            "grep pattern C:/src/codjiflo/AGENTS.md"
+        );
+    }
+
+    #[test]
+    fn fixes_quad_backslash_in_node_e() {
+        // C:\\\\ in raw command → after bash: C:\\ → after JS: C:\ (correct
+        // but fragile). Forward slashes avoid the entire escaping chain.
+        let cmd = r#"node -e "require('fs').readFileSync('C:\\\\src\\\\file.json','utf8')""#;
+        assert_eq!(
+            fix_command(cmd).unwrap(),
+            r#"node -e "require('fs').readFileSync('C:/src/file.json','utf8')""#
+        );
+    }
+
+    #[test]
+    fn fixes_double_backslash_in_node_e() {
+        let cmd = r#"node -e "require('fs').readFileSync('C:\\tmp\\kv-ns.json','utf8')""#;
+        assert_eq!(
+            fix_command(cmd).unwrap(),
+            r#"node -e "require('fs').readFileSync('C:/tmp/kv-ns.json','utf8')""#
+        );
+    }
+
+    #[test]
+    fn fixes_combined_dev_stdin_and_path() {
+        let cmd = r#"cat C:\\tmp\\data.json | node -e "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))""#;
+        let fixed = fix_command(cmd).unwrap();
+        assert!(fixed.command.contains("C:/tmp/data.json"));
+        assert!(fixed.command.contains("readFileSync(0,"));
+    }
+
+    // -- No-op cases ---------------------------------------------------------
+
+    #[test]
+    fn ignores_forward_slash_path() {
         let cmd = "ls -la C:/src/project";
-        assert!(check_unquoted_backslash_paths(cmd).is_none());
+        assert!(fix_command(cmd).is_none());
     }
 
     #[test]
-    fn allows_doubled_backslash_path() {
-        // C:\\ in raw command = C:\ after bash = valid
-        let cmd = r"ls -la C:\\src\\project";
-        assert!(check_unquoted_backslash_paths(cmd).is_none());
-    }
-
-    #[test]
-    fn allows_unix_style_cd() {
+    fn ignores_unix_path() {
         let cmd = "cd /c/src/project && ls";
-        assert!(check_unquoted_backslash_paths(cmd).is_none());
+        assert!(fix_command(cmd).is_none());
+    }
+
+    #[test]
+    fn ignores_clean_node_e() {
+        let cmd = r#"node -e "console.log('hello')""#;
+        assert!(fix_command(cmd).is_none());
+    }
+
+    #[test]
+    fn ignores_url_with_colon() {
+        let cmd = "curl https://example.com:8080/api";
+        assert!(fix_command(cmd).is_none());
+    }
+
+    #[test]
+    fn does_not_match_mid_word_colon() {
+        // "Error:" has 'r' before ':' which is alphanumeric → no match
+        let cmd = r#"echo "Error: something failed""#;
+        assert!(fix_command(cmd).is_none());
+    }
+
+    // -- Edge cases ----------------------------------------------------------
+
+    #[test]
+    fn fixes_path_with_dots() {
+        let cmd = r"ls C:\src\el400\main\.github";
+        assert_eq!(fix_command(cmd).unwrap(), "ls C:/src/el400/main/.github");
+    }
+
+    #[test]
+    fn preserves_non_path_backslashes() {
+        // \n in echo is NOT a drive path — should not be touched
+        let cmd = r#"echo "line1\nline2""#;
+        assert!(fix_command(cmd).is_none());
+    }
+
+    #[test]
+    fn fixes_path_after_equals() {
+        let cmd = r"VAR=C:\src\project echo test";
+        assert_eq!(
+            fix_command(cmd).unwrap(),
+            "VAR=C:/src/project echo test"
+        );
+    }
+
+    // -- Context messages -----------------------------------------------------
+
+    #[test]
+    fn context_mentions_backslash() {
+        let cmd = r"ls C:\src\project";
+        let fixed = fix_command(cmd).unwrap();
+        assert!(fixed.context.contains("backslash"));
+        assert!(fixed.context.contains("forward slash"));
+    }
+
+    #[test]
+    fn context_mentions_dev_stdin() {
+        let cmd = r#"node -e "require('fs').readFileSync('/dev/stdin','utf8')""#;
+        let fixed = fix_command(cmd).unwrap();
+        assert!(fixed.context.contains("/dev/stdin"));
+    }
+
+    #[test]
+    fn context_mentions_both_fixes() {
+        let cmd = r#"cat C:\\tmp\\data.json | node -e "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))""#;
+        let fixed = fix_command(cmd).unwrap();
+        assert!(fixed.context.contains("/dev/stdin"));
+        assert!(fixed.context.contains("backslash"));
     }
 }
