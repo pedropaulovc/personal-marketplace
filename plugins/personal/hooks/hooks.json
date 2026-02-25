@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/windows-bash-guard\""
+            "command": "b=\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/windows-bash-guard\"; test -f \"$b.exe\" && exec \"$b.exe\" || exec \"$b\""
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/unrelated-issue-detector\""
+            "command": "b=\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/unrelated-issue-detector\"; test -f \"$b.exe\" && exec \"$b.exe\" || exec \"$b\""
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/mediocrity-detector\""
+            "command": "b=\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/mediocrity-detector\"; test -f \"$b.exe\" && exec \"$b.exe\" || exec \"$b\""
           }
         ]
       }

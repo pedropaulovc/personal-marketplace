@@ -1,7 +1,7 @@
 {
   "name": "personal",
   "description": "Personal productivity plugins: PR comments handler, worktree reset, and GitHub issue creator",
-  "version": "3.6.1",
+  "version": "3.6.2",
   "author": {
     "name": "Pedro Paulo Vezza Campos",
     "email": "pedro@vezza.com.br"
