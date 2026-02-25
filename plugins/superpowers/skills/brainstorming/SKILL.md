@@ -9,7 +9,7 @@ description: "You MUST use this before any creative work - creating features, bu
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
 
-Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
+Start by understanding the current project context, then ask clarifying questions to refine the idea. Batch related questions together using AskUserQuestion (up to 4 per call) to keep the conversation efficient. Once you understand what you're building, present the design and get user approval.
 
 <HARD-GATE>
 Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.
@@ -24,7 +24,7 @@ Every project goes through this process. A todo list, a single-function utility,
 You MUST create a task for each of these items and complete them in order:
 
 1. **Explore project context** — check files, docs, recent commits
-2. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
+2. **Ask clarifying questions** — batch related questions together (up to 4 per AskUserQuestion call), understand purpose/constraints/success criteria
 3. **Propose 2-3 approaches** — with trade-offs and your recommendation
 4. **Present design** — in sections scaled to their complexity, get user approval after each section
 5. **Write design doc** — save to `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit
@@ -58,15 +58,17 @@ digraph brainstorming {
 
 **Understanding the idea:**
 - Check out the current project state first (files, docs, recent commits)
-- Ask questions one at a time to refine the idea
+- Batch related clarifying questions together using AskUserQuestion (up to 4 questions per call)
 - Prefer multiple choice questions when possible, but open-ended is fine too
-- Only one question per message - if a topic needs more exploration, break it into multiple questions
+- Use `multiSelect: true` for non-exclusive choices (e.g. "which constraints apply?")
+- Use `markdown` previews on options when comparing concrete artifacts (ASCII layouts, code snippets, architecture diagrams)
+- Group questions by theme (e.g. purpose, constraints, success criteria) so each batch is coherent
 - Focus on understanding: purpose, constraints, success criteria
 
 **Exploring approaches:**
-- Propose 2-3 different approaches with trade-offs
-- Present options conversationally with your recommendation and reasoning
-- Lead with your recommended option and explain why
+- Propose 2-3 different approaches with trade-offs using AskUserQuestion
+- Use `markdown` previews on each option to show architecture diagrams, code snippets, or data flow comparisons side-by-side
+- Lead with your recommended option (first in the list), append "(Recommended)" to its label, and explain why in its `description`
 
 **Presenting the design:**
 - Once you believe you understand what you're building, present the design
@@ -88,7 +90,7 @@ digraph brainstorming {
 
 ## Key Principles
 
-- **One question at a time** - Don't overwhelm with multiple questions
+- **Batch related questions** - Use AskUserQuestion to ask up to 4 related questions per call; avoid drip-feeding one question at a time
 - **Multiple choice preferred** - Easier to answer than open-ended when possible
 - **YAGNI ruthlessly** - Remove unnecessary features from all designs
 - **Explore alternatives** - Always propose 2-3 approaches before settling
