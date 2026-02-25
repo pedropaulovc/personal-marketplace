@@ -19,51 +19,47 @@ import subprocess
 import sys
 
 HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
-CRATE_DIR = os.path.join(HOOKS_DIR, 'unrelated-issue-detector')
 BIN_DIR = os.path.join(HOOKS_DIR, 'bin')
 
-TARGETS = [
-    {
-        'triple': 'x86_64-unknown-linux-gnu',
-        'binary': 'unrelated-issue-detector',
-        'output': 'unrelated-issue-detector',
-        'zigbuild': True,
-    },
-    {
-        'triple': 'x86_64-pc-windows-msvc',
-        'binary': 'unrelated-issue-detector.exe',
-        'output': 'unrelated-issue-detector.exe',
-        'zigbuild': False,
-    },
+PLATFORM_TARGETS = [
+    {'triple': 'x86_64-unknown-linux-gnu', 'ext': '', 'zigbuild': True},
+    {'triple': 'x86_64-pc-windows-msvc', 'ext': '.exe', 'zigbuild': False},
+]
+
+CRATES = [
+    'unrelated-issue-detector',
+    'windows-bash-guard',
 ]
 
 
-def build_target(triple: str, zigbuild: bool = False) -> None:
+def build_target(crate_dir: str, triple: str, zigbuild: bool = False) -> None:
     cmd = 'zigbuild' if zigbuild else 'build'
     print(f"Building for {triple} (cargo {cmd})...")
     subprocess.run(
         ['cargo', cmd, '--release', '--target', triple],
-        cwd=CRATE_DIR,
+        cwd=crate_dir,
         check=True,
     )
 
 
-def copy_binary(triple: str, binary: str, output: str) -> None:
-    src = os.path.join(CRATE_DIR, 'target', triple, 'release', binary)
-    dst = os.path.join(BIN_DIR, output)
+def copy_binary(crate_dir: str, crate_name: str, triple: str, ext: str) -> None:
+    src = os.path.join(crate_dir, 'target', triple, 'release', crate_name + ext)
+    dst = os.path.join(BIN_DIR, crate_name + ext)
     os.makedirs(BIN_DIR, exist_ok=True)
     shutil.copy2(src, dst)
     print(f"Copied {src} -> {dst}")
 
 
 def main() -> None:
-    for target in TARGETS:
-        try:
-            build_target(target['triple'], target.get('zigbuild', False))
-            copy_binary(target['triple'], target['binary'], target['output'])
-        except subprocess.CalledProcessError:
-            print(f"WARNING: failed to build for {target['triple']}, skipping", file=sys.stderr)
-            continue
+    for crate_name in CRATES:
+        crate_dir = os.path.join(HOOKS_DIR, crate_name)
+        for target in PLATFORM_TARGETS:
+            try:
+                build_target(crate_dir, target['triple'], target['zigbuild'])
+                copy_binary(crate_dir, crate_name, target['triple'], target['ext'])
+            except subprocess.CalledProcessError:
+                print(f"WARNING: failed to build {crate_name} for {target['triple']}, skipping", file=sys.stderr)
+                continue
 
     print("Done.")
 
