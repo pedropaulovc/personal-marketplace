@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "eval \"$(printf '%s' Yj0iJHtDTEFVREVfUExVR0lOX1JPT1R9L2hvb2tzL2Jpbi93aW5kb3dzLWJhc2gtZ3VhcmQiOyBpZiBbIC1mICIkYi5leGUiIF07IHRoZW4gZXhlYyAiJGIuZXhlIjsgZmk7IGV4ZWMgIiRiIg== | base64 -d)\""
+            "command": "b=\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/windows-bash-guard\"; test -f \"$b.exe\" && exec \"$b.exe\" || exec \"$b\""
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "eval \"$(printf '%s' Yj0iJHtDTEFVREVfUExVR0lOX1JPT1R9L2hvb2tzL2Jpbi91bnJlbGF0ZWQtaXNzdWUtZGV0ZWN0b3IiOyBpZiBbIC1mICIkYi5leGUiIF07IHRoZW4gZXhlYyAiJGIuZXhlIjsgZmk7IGV4ZWMgIiRiIg== | base64 -d)\""
+            "command": "b=\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/unrelated-issue-detector\"; test -f \"$b.exe\" && exec \"$b.exe\" || exec \"$b\""
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "eval \"$(printf '%s' Yj0iJHtDTEFVREVfUExVR0lOX1JPT1R9L2hvb2tzL2Jpbi9tZWRpb2NyaXR5LWRldGVjdG9yIjsgaWYgWyAtZiAiJGIuZXhlIiBdOyB0aGVuIGV4ZWMgIiRiLmV4ZSI7IGZpOyBleGVjICIkYiI= | base64 -d)\""
+            "command": "b=\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/mediocrity-detector\"; test -f \"$b.exe\" && exec \"$b.exe\" || exec \"$b\""
           }
         ]
       }

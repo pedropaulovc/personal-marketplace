@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Build script: cross-compiles the hook Rust binaries for Linux x86_64 and
-Windows x86_64, copies the outputs to hooks/bin/, then rewrites hooks.json
-with the correct dispatch commands.
+Build script: cross-compiles the unrelated-issue-detector Rust binary for
+Linux x86_64 and Windows x86_64, then copies the outputs to hooks/bin/.
 
 Run after any change to the Rust source or when bumping the plugin version.
 
@@ -14,8 +13,6 @@ Prerequisites:
       cargo install cargo-zigbuild
       uv tool install ziglang
 """
-import base64
-import json
 import os
 import shutil
 import subprocess
@@ -23,21 +20,17 @@ import sys
 
 HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
 BIN_DIR = os.path.join(HOOKS_DIR, 'bin')
-HOOKS_JSON_PATH = os.path.join(HOOKS_DIR, 'hooks.json')
 
 PLATFORM_TARGETS = [
     {'triple': 'x86_64-unknown-linux-gnu', 'ext': '', 'zigbuild': True},
     {'triple': 'x86_64-pc-windows-msvc', 'ext': '.exe', 'zigbuild': False},
 ]
 
-# Each hook definition: event type, matcher, and which binary to dispatch to.
-HOOK_DEFS = [
-    {'event': 'PreToolUse',  'matcher': 'Bash', 'binary': 'windows-bash-guard'},
-    {'event': 'PostToolUse', 'matcher': '',     'binary': 'unrelated-issue-detector'},
-    {'event': 'Stop',        'matcher': '',     'binary': 'mediocrity-detector'},
+CRATES = [
+    'unrelated-issue-detector',
+    'windows-bash-guard',
+    'mediocrity-detector',
 ]
-
-CRATES = sorted({h['binary'] for h in HOOK_DEFS})
 
 
 def build_target(crate_dir: str, triple: str, zigbuild: bool = False) -> None:
@@ -58,46 +51,6 @@ def copy_binary(crate_dir: str, crate_name: str, triple: str, ext: str) -> None:
     print(f"Copied {src} -> {dst}")
 
 
-def dispatch_command(binary_name: str) -> str:
-    """Build a cross-platform dispatch command for a hook binary.
-
-    Same strategy as the superpowers plugin: the dispatch logic is
-    base64-encoded so the outer command contains only safe chars
-    ([A-Za-z0-9+/=]) — no variable expansions, no quoting to mangle,
-    works identically in Git Bash and native Linux.
-    """
-    # Shell script with the actual dispatch logic — safe inside base64.
-    script = (
-        f'b="${{CLAUDE_PLUGIN_ROOT}}/hooks/bin/{binary_name}";'
-        ' if [ -f "$b.exe" ]; then exec "$b.exe"; fi;'
-        ' exec "$b"'
-    )
-    b64 = base64.b64encode(script.encode()).decode('ascii')
-    # Outer command: only printf, pipe, base64, eval — no special chars.
-    return f"eval \"$(printf '%s' {b64} | base64 -d)\""
-
-
-def write_hooks_json() -> None:
-    hooks: dict[str, list] = {}
-    for h in HOOK_DEFS:
-        entry = {
-            'matcher': h['matcher'],
-            'hooks': [
-                {
-                    'type': 'command',
-                    'command': dispatch_command(h['binary']),
-                }
-            ],
-        }
-        hooks.setdefault(h['event'], []).append(entry)
-
-    with open(HOOKS_JSON_PATH, 'w', encoding='utf-8') as f:
-        json.dump({'hooks': hooks}, f, indent=2, ensure_ascii=False)
-        f.write('\n')
-
-    print(f"Updated {HOOKS_JSON_PATH}")
-
-
 def main() -> None:
     for crate_name in CRATES:
         crate_dir = os.path.join(HOOKS_DIR, crate_name)
@@ -109,7 +62,6 @@ def main() -> None:
                 print(f"WARNING: failed to build {crate_name} for {target['triple']}, skipping", file=sys.stderr)
                 continue
 
-    write_hooks_json()
     print("Done.")
 
 
