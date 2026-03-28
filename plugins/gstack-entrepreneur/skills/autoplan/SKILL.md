@@ -1,19 +1,7 @@
 ---
 name: autoplan
-description: |
-  Use when you want to run a full review pipeline automatically: strategy review,
-  market analysis, and product review in sequence with auto-decisions. Surfaces
-  only taste decisions for human approval at a final gate.
-  Triggered by "autoplan", "full review", "run all reviews", "auto-review".
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Grep
-  - Glob
-  - WebSearch
-  - AskUserQuestion
+description: Use when you want to run a full review pipeline automatically. Runs strategy review, market analysis, and product review in sequence with auto-decisions. Surfaces only taste decisions for human approval.
+allowed-tools: Bash, Read, Write, Edit, Grep, Glob, WebSearch, AskUserQuestion
 ---
 
 # Auto-Review Pipeline

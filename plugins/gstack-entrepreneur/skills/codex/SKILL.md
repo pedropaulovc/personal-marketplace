@@ -1,17 +1,7 @@
 ---
 name: codex
-description: |
-  Use when wanting an independent second opinion from OpenAI Codex on strategy,
-  ideas, or plans. Three modes: review (structured evaluation with pass/fail),
-  challenge (adversarial stress-test), consult (free-form with session continuity).
-  Triggered by "codex", "second opinion", "challenge this", "codex review".
-allowed-tools:
-  - Bash
-  - Read
-  - Grep
-  - Glob
-  - Write
-  - AskUserQuestion
+description: Use when wanting an independent second opinion from OpenAI Codex on strategy, ideas, or plans. Three modes: review (pass/fail), challenge (adversarial), consult (free-form with session continuity).
+allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion
 ---
 
 # Multi-AI Second Opinion via Codex

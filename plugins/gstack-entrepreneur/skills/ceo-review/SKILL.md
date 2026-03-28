@@ -1,20 +1,7 @@
 ---
 name: ceo-review
-description: |
-  Use when reviewing strategy, challenging scope, thinking bigger about a plan, or
-  evaluating business decisions. Four modes: scope expansion, selective expansion,
-  hold scope, scope reduction.
-  Triggered by "think bigger", "expand scope", "strategy review", "rethink this",
-  "is this ambitious enough", "CEO review".
-allowed-tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
-  - Write
-  - Edit
-  - WebSearch
-  - AskUserQuestion
+description: Use when reviewing strategy, challenging scope, thinking bigger about a plan, or evaluating business decisions. Four modes: scope expansion, selective expansion, hold scope, scope reduction.
+allowed-tools: Read, Grep, Glob, Bash, Write, Edit, WebSearch, AskUserQuestion
 ---
 
 # CEO / Founder-Mode Plan Review

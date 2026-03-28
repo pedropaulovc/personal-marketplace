@@ -1,19 +1,7 @@
 ---
 name: office-hours
-description: |
-  Use when brainstorming product ideas, validating startup concepts, or exploring
-  whether something is worth building. Use before /ceo-review.
-  Triggered by "brainstorm", "I have an idea", "help me think through this",
-  "office hours", "is this worth building".
-allowed-tools:
-  - Bash
-  - Read
-  - Grep
-  - Glob
-  - Write
-  - Edit
-  - WebSearch
-  - AskUserQuestion
+description: Use when brainstorming product ideas, validating startup concepts, or exploring whether something is worth building. Triggered by "brainstorm", "I have an idea", "help me think through this", "office hours", "is this worth building".
+allowed-tools: Bash, Read, Grep, Glob, Write, Edit, WebSearch, AskUserQuestion
 ---
 
 # YC Office Hours

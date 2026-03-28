@@ -1,20 +1,7 @@
 ---
 name: market-research
-description: |
-  Use when researching competitors, understanding a market, evaluating product
-  positioning, or exploring what exists in a space. Uses web search and
-  three-layer synthesis (tried-and-true, new-and-popular, first-principles).
-  Triggered by "market research", "competitive analysis", "what's out there",
-  "who are the competitors", "landscape".
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - WebSearch
-  - AskUserQuestion
+description: Use when researching competitors, understanding a market, evaluating product positioning, or exploring what exists in a space. Uses web search and three-layer synthesis.
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebSearch, AskUserQuestion
 ---
 
 # Market Research & Competitive Analysis
