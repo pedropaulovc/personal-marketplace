@@ -15,10 +15,6 @@
       "source": "./plugins/superpowers"
     },
     {
-      "name": "playwright-cli",
-      "source": "./plugins/playwright-cli"
-    },
-    {
       "name": "gstack-entrepreneur",
       "source": "./plugins/gstack-entrepreneur"
     }
