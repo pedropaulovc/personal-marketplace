@@ -9,11 +9,14 @@ Prerequisites:
   - Rust toolchain with targets:
       rustup target add x86_64-unknown-linux-gnu
       rustup target add x86_64-pc-windows-msvc
-  - cargo-zigbuild + zig for Linux cross-compilation from Windows:
+  - On Windows: cargo-zigbuild + zig for Linux cross-compilation:
       cargo install cargo-zigbuild
       uv tool install ziglang
+  - On Linux: cargo-xwin for Windows cross-compilation:
+      cargo install cargo-xwin
 """
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -21,9 +24,14 @@ import sys
 HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
 BIN_DIR = os.path.join(HOOKS_DIR, 'bin')
 
+IS_WINDOWS = platform.system() == 'Windows'
+
+# Cross-compilation strategy:
+#   On Windows: zigbuild for Linux, native build for Windows
+#   On Linux:   native build for Linux, xwin for Windows
 PLATFORM_TARGETS = [
-    {'triple': 'x86_64-unknown-linux-gnu', 'ext': '', 'zigbuild': True},
-    {'triple': 'x86_64-pc-windows-msvc', 'ext': '.exe', 'zigbuild': False},
+    {'triple': 'x86_64-unknown-linux-gnu', 'ext': '', 'cmd': 'zigbuild' if IS_WINDOWS else 'build'},
+    {'triple': 'x86_64-pc-windows-msvc', 'ext': '.exe', 'cmd': 'build' if IS_WINDOWS else 'xwin build'},
 ]
 
 CRATES = [
@@ -33,11 +41,10 @@ CRATES = [
 ]
 
 
-def build_target(crate_dir: str, triple: str, zigbuild: bool = False) -> None:
-    cmd = 'zigbuild' if zigbuild else 'build'
+def build_target(crate_dir: str, triple: str, cmd: str = 'build') -> None:
     print(f"Building for {triple} (cargo {cmd})...")
     subprocess.run(
-        ['cargo', cmd, '--release', '--target', triple],
+        ['cargo', *cmd.split(), '--release', '--target', triple],
         cwd=crate_dir,
         check=True,
     )
@@ -56,7 +63,7 @@ def main() -> None:
         crate_dir = os.path.join(HOOKS_DIR, crate_name)
         for target in PLATFORM_TARGETS:
             try:
-                build_target(crate_dir, target['triple'], target['zigbuild'])
+                build_target(crate_dir, target['triple'], target['cmd'])
                 copy_binary(crate_dir, crate_name, target['triple'], target['ext'])
             except subprocess.CalledProcessError:
                 print(f"WARNING: failed to build {crate_name} for {target['triple']}, skipping", file=sys.stderr)
