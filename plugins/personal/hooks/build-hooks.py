@@ -18,6 +18,7 @@ Prerequisites:
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -55,6 +56,7 @@ def copy_binary(crate_dir: str, crate_name: str, triple: str, ext: str) -> None:
     dst = os.path.join(BIN_DIR, crate_name + ext)
     os.makedirs(BIN_DIR, exist_ok=True)
     shutil.copy2(src, dst)
+    os.chmod(dst, os.stat(dst).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     print(f"Copied {src} -> {dst}")
 
 
