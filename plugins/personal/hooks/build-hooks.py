@@ -57,6 +57,9 @@ def copy_binary(crate_dir: str, crate_name: str, triple: str, ext: str) -> None:
     os.makedirs(BIN_DIR, exist_ok=True)
     shutil.copy2(src, dst)
     os.chmod(dst, os.stat(dst).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # Ensure git tracks the binary as executable so `git pull` preserves +x
+    if not ext:
+        subprocess.run(['git', 'update-index', '--chmod=+x', dst], check=False)
     print(f"Copied {src} -> {dst}")
 
 
