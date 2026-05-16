@@ -1,7 +1,7 @@
 {
   "name": "powershell-autofix",
   "description": "PreToolUse hook that auto-appends `| Out-Host` to PowerShell commands that would otherwise return silently because their output relies on PowerShell's implicit formatter (see anthropics/claude-code#59609). Out-Host produces byte-identical output to a user-written `| Format-Table`, unifying the autofix path with the explicit one.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "Pedro Paulo Vezza Campos",
     "email": "pedro@vezza.com.br"

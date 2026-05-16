@@ -162,15 +162,40 @@ fn needs_out_host(command: &str) -> bool {
         .any(|c| c.eq_ignore_ascii_case(first_token))
 }
 
-/// True iff `s` contains a `;` outside single or double quotes.
+/// True iff `s` contains a `;` outside any single/double quote, parenthesis,
+/// brace, or bracket. The semicolon must be a *real* top-level statement
+/// separator — semicolons inside hashtable literals (`@{a=1; b=2}`), script
+/// blocks (`{ ... ; ... }`), subexpressions (`$(... ; ...)`), or array
+/// literals (`@(...; ...)`) must not trip the bailout.
 fn has_top_level_semicolon(s: &str) -> bool {
     let mut in_single = false;
     let mut in_double = false;
+    let mut paren = 0i32;
+    let mut brace = 0i32;
+    let mut bracket = 0i32;
     for &b in s.as_bytes() {
+        // Quote state takes precedence — characters inside quotes don't change
+        // any other state.
         match b {
-            b'\'' if !in_double => in_single = !in_single,
-            b'"' if !in_single => in_double = !in_double,
-            b';' if !in_single && !in_double => return true,
+            b'\'' if !in_double => {
+                in_single = !in_single;
+                continue;
+            }
+            b'"' if !in_single => {
+                in_double = !in_double;
+                continue;
+            }
+            _ if in_single || in_double => continue,
+            _ => {}
+        }
+        match b {
+            b'(' => paren += 1,
+            b')' if paren > 0 => paren -= 1,
+            b'{' => brace += 1,
+            b'}' if brace > 0 => brace -= 1,
+            b'[' => bracket += 1,
+            b']' if bracket > 0 => bracket -= 1,
+            b';' if paren == 0 && brace == 0 && bracket == 0 => return true,
             _ => {}
         }
     }
@@ -343,5 +368,164 @@ mod tests {
     fn format_tableish_does_not_match_format_table() {
         // Sanity: `Format-Tableish` (hypothetical) must not be treated as terminal.
         assert!(needs_out_host("Get-Process | Format-Tableish"));
+    }
+
+    // -- Brace/paren/bracket-aware semicolon handling -------------------------
+
+    #[test]
+    fn semicolon_inside_braces_does_not_bail() {
+        // Hashtable literals contain `;` between entries. Without the
+        // depth-tracking fix, this case was a false-positive bailout and the
+        // hook produced no output, reproducing the original bug.
+        assert!(needs_out_host(
+            "Get-Process | Select-Object @{N='ProcID'; E={$_.Id}}, ProcessName"
+        ));
+    }
+
+    #[test]
+    fn semicolon_inside_parens_does_not_bail() {
+        // Subexpression with multiple statements.
+        assert!(needs_out_host("Get-Process | Where-Object { $_.Id -gt 100 }"));
+        assert!(needs_out_host(
+            "$(Get-Process; Get-Service | Select-Object -First 1)"
+        ));
+    }
+
+    #[test]
+    fn semicolon_inside_array_literal_does_not_bail() {
+        assert!(needs_out_host("@(1; 2; 3) | Measure-Object -Sum"));
+    }
+
+    #[test]
+    fn top_level_semicolon_still_bails() {
+        // Sanity: the brace/paren tracking must not break the original bailout.
+        assert!(!needs_out_host("Get-Process; Get-Service"));
+        assert!(!needs_out_host(
+            "function Get-PyVersion { python --version }; Get-PyVersion"
+        ));
+    }
+
+    #[test]
+    fn unmatched_braces_do_not_underflow() {
+        // Defensive: a stray `}` shouldn't make depth negative and re-enable
+        // bailout. Use a top-level `;` after the stray brace.
+        assert!(!needs_out_host("}; Get-Process"));
+    }
+
+    // -- External commands (the python script use case) ----------------------
+
+    #[test]
+    fn flags_external_command_python_script() {
+        assert!(needs_out_host("python script.py"));
+        assert!(needs_out_host(r"python C:\tmp\script.py"));
+    }
+
+    #[test]
+    fn flags_external_command_python_inline() {
+        assert!(needs_out_host(r#"python -c "print('hello')""#));
+    }
+
+    #[test]
+    fn flags_external_command_with_args() {
+        assert!(needs_out_host("python script.py --arg1 value1 --arg2 value2"));
+    }
+
+    #[test]
+    fn flags_external_call_operator() {
+        assert!(needs_out_host(r#"& "C:\Program Files\app.exe" arg"#));
+        assert!(needs_out_host("& { Get-Process }"));
+    }
+
+    // -- Pipelines ending in object-producing cmdlets ------------------------
+
+    #[test]
+    fn flags_select_string_pipeline() {
+        assert!(needs_out_host("python script.py | Select-String 'pattern'"));
+    }
+
+    #[test]
+    fn flags_convert_from_json_pipeline() {
+        // Critical: without the hook, ConvertFrom-Json output is silent. The
+        // hook makes it visible — same case as Get-Process raw.
+        assert!(needs_out_host("python -c \"print('{}')\" | ConvertFrom-Json"));
+    }
+
+    #[test]
+    fn flags_foreach_object_pipeline() {
+        assert!(needs_out_host(
+            "1..5 | ForEach-Object { python -c \"print($_)\" }"
+        ));
+    }
+
+    #[test]
+    fn flags_measure_object() {
+        assert!(needs_out_host("@(1,2,3) | Measure-Object -Sum"));
+    }
+
+    #[test]
+    fn flags_sort_object_pipeline() {
+        assert!(needs_out_host("Get-Process | Sort-Object CPU -Descending"));
+    }
+
+    #[test]
+    fn flags_group_object_pipeline() {
+        assert!(needs_out_host("Get-Process | Group-Object Company"));
+    }
+
+    // -- Expressions and method/property access ------------------------------
+
+    #[test]
+    fn flags_parenthesized_count() {
+        assert!(needs_out_host("(Get-Process | Select-Object Id, Name).Count"));
+    }
+
+    #[test]
+    fn flags_dotnet_static_property() {
+        assert!(needs_out_host("[Math]::PI"));
+        assert!(needs_out_host("[Environment]::OSVersion"));
+    }
+
+    #[test]
+    fn flags_dotnet_method_call() {
+        assert!(needs_out_host("[Math]::Pow(2, 10)"));
+    }
+
+    #[test]
+    fn flags_range_operator() {
+        assert!(needs_out_host("1..5"));
+    }
+
+    #[test]
+    fn flags_env_var_access() {
+        assert!(needs_out_host("$env:USERNAME"));
+        assert!(needs_out_host("$LASTEXITCODE"));
+    }
+
+    // -- Control flow bailouts -----------------------------------------------
+
+    #[test]
+    fn skips_try_catch_block() {
+        assert!(!needs_out_host(
+            "try { python script.py 2>&1 | Out-String } catch { \"caught: $_\" }"
+        ));
+    }
+
+    #[test]
+    fn skips_function_definition_then_call() {
+        // The top-level `;` between the function decl and the call already
+        // forces a bailout — but make sure both halves don't accidentally
+        // re-enable the heuristic.
+        assert!(!needs_out_host(
+            "function Get-PyVersion { python --version }; Get-PyVersion"
+        ));
+    }
+
+    // -- Already-handled terminator cases ------------------------------------
+
+    #[test]
+    fn skips_format_table_after_long_pipeline() {
+        assert!(!needs_out_host(
+            "Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 | Format-Table"
+        ));
     }
 }

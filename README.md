@@ -32,7 +32,7 @@ Fork of [Superpowers](https://github.com/obra/superpowers) - A complete software
 
 C# + SolidWorks API skill: documentation-first workflow, code-quality patterns for COM interop, learnings from real bugs (`FeatureCut4` returning null, extrusion failures, faulty geometry), and a `/download-solidworks-docs` command that fetches the offline API doc bundle into the skill folder. Extracted from [pedropaulovc/harmonic-analyzer](https://github.com/pedropaulovc/harmonic-analyzer).
 
-### powershell-autofix (v0.2.0)
+### powershell-autofix (v0.3.0)
 
 PreToolUse hook that auto-appends `| Out-Host` to PowerShell commands whose output would otherwise be silently dropped by the Claude Code PowerShell tool (see [anthropics/claude-code#59609](https://github.com/anthropics/claude-code/issues/59609)). Lets the model run idiomatic PowerShell one-liners without defensively tacking on `Format-Table`. The Out-Host terminator was chosen over Out-String because it produces byte-identical output to a user-written `| Format-Table`, unifying both paths.
 
