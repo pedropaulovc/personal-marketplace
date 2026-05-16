@@ -1,14 +1,25 @@
-//! PreToolUse hook that auto-appends `| Out-String` to PowerShell commands
+//! PreToolUse hook that auto-appends `| Out-Host` to PowerShell commands
 //! whose output would otherwise be silently swallowed by the Claude Code
 //! PowerShell tool's capture path. See anthropics/claude-code#59609.
 //!
 //! Strategy: on PreToolUse for tool `PowerShell`, inspect the command string.
-//! If the heuristic `needs_out_string` decides the command's final result is
-//! an unrendered object stream, rewrite the command to `<command> | Out-String`
+//! If the heuristic `needs_out_host` decides the command's final result is
+//! an unrendered object stream, rewrite the command to `<command> | Out-Host`
 //! and re-submit via `hookSpecificOutput.updatedInput`. Otherwise no-op.
 //!
+//! Why `Out-Host` rather than `Out-String`: empirically the two produce
+//! *different* bytes through the Claude Code PowerShell tool. `Out-Host` is
+//! exactly the cmdlet pwsh.exe's implicit `Out-Default` routes to at end of
+//! pipeline; the tool's capture path renders its output identically to what
+//! a user gets from `| Format-Table` (byte-for-byte: same ANSI escapes, same
+//! CRLF line endings, same column alignment). `Out-String` is a *parallel*
+//! path that converts pipeline objects to strings without going through the
+//! host renderer — it loses ANSI texture and produces a slightly different
+//! alignment due to a leading-whitespace trim in the tool. Out-Host therefore
+//! unifies the autofix output with the user's explicit `| Format-Table` cases.
+//!
 //! Failure mode: misclassifying as needing-a-fix only ever appends an extra
-//! `| Out-String` to already-text output, which is harmless and idempotent.
+//! `| Out-Host` to already-rendered output, which is harmless and idempotent.
 
 use serde_json::{json, Value};
 use std::io::{self, Read};
@@ -58,7 +69,7 @@ fn main() {
         _ => process::exit(0),
     };
 
-    if !needs_out_string(command) {
+    if !needs_out_host(command) {
         process::exit(0);
     }
 
@@ -110,13 +121,13 @@ const CONTROL_LEADS: &[&str] = &[
 ];
 
 /// Decide whether `command` would silently swallow object output and therefore
-/// needs `| Out-String` appended.
+/// needs `| Out-Host` appended.
 ///
 /// Strategy: bail conservatively on multi-statement / assignment / control-flow
 /// shapes whose output semantics are tricky; otherwise inspect the rightmost
 /// top-level pipeline segment and flag it unless it starts with a known
 /// terminal cmdlet (case-insensitive).
-fn needs_out_string(command: &str) -> bool {
+fn needs_out_host(command: &str) -> bool {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return false;
@@ -166,11 +177,11 @@ fn has_top_level_semicolon(s: &str) -> bool {
     false
 }
 
-/// Append `| Out-String` to the command, preserving any trailing whitespace.
+/// Append `| Out-Host` to the command, preserving any trailing whitespace.
 fn apply_fix(command: &str) -> String {
     let trimmed = command.trim_end();
     let suffix = &command[trimmed.len()..];
-    format!("{} | Out-String{}", trimmed, suffix)
+    format!("{} | Out-Host{}", trimmed, suffix)
 }
 
 // ---------------------------------------------------------------------------
@@ -207,10 +218,10 @@ mod tests {
     }
 
     #[test]
-    fn apply_fix_appends_out_string() {
+    fn apply_fix_appends_out_host() {
         assert_eq!(
             apply_fix("Get-Process | Select-Object Id"),
-            "Get-Process | Select-Object Id | Out-String"
+            "Get-Process | Select-Object Id | Out-Host"
         );
     }
 
@@ -218,7 +229,7 @@ mod tests {
     fn apply_fix_preserves_trailing_newline() {
         assert_eq!(
             apply_fix("Get-Process\n"),
-            "Get-Process | Out-String\n"
+            "Get-Process | Out-Host\n"
         );
     }
 
@@ -226,100 +237,111 @@ mod tests {
 
     #[test]
     fn flags_bare_get_process() {
-        assert!(needs_out_string("Get-Process"));
+        assert!(needs_out_host("Get-Process"));
     }
 
     #[test]
     fn flags_get_process_select() {
-        assert!(needs_out_string(
+        assert!(needs_out_host(
             "Get-Process -Name explorer -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, StartTime"
         ));
     }
 
     #[test]
     fn skips_when_format_table_terminal() {
-        assert!(!needs_out_string(
+        assert!(!needs_out_host(
             "Get-Process | Select-Object Id, ProcessName | Format-Table"
         ));
     }
 
     #[test]
     fn skips_when_out_string_already_present() {
-        assert!(!needs_out_string("Get-Process | Out-String"));
+        // Out-String stays in TERMINAL_CMDLETS — if the user explicitly chose
+        // Out-String, don't override it.
+        assert!(!needs_out_host("Get-Process | Out-String"));
+    }
+
+    #[test]
+    fn skips_when_out_host_already_present() {
+        // Idempotence: Out-Host is what apply_fix appends. A second pass must
+        // not double-wrap (Out-Host consumes its input — re-wrapping makes the
+        // tool result empty).
+        assert!(!needs_out_host("Get-Process | Out-Host"));
+        assert!(!needs_out_host("Get-Process | Select-Object Id | Out-Host"));
     }
 
     #[test]
     fn case_insensitive_terminal_cmdlet() {
-        assert!(!needs_out_string("Get-Process | format-table"));
-        assert!(!needs_out_string("Get-Process | FORMAT-TABLE"));
+        assert!(!needs_out_host("Get-Process | format-table"));
+        assert!(!needs_out_host("Get-Process | FORMAT-TABLE"));
     }
 
     #[test]
     fn skips_format_table_alias_ft() {
-        assert!(!needs_out_string("Get-Process | ft"));
+        assert!(!needs_out_host("Get-Process | ft"));
     }
 
     #[test]
     fn skips_out_null() {
-        assert!(!needs_out_string("Get-Process | Out-Null"));
+        assert!(!needs_out_host("Get-Process | Out-Null"));
     }
 
     #[test]
     fn skips_convertto_json() {
-        assert!(!needs_out_string("Get-Process | ConvertTo-Json"));
+        assert!(!needs_out_host("Get-Process | ConvertTo-Json"));
     }
 
     #[test]
     fn skips_assignment() {
-        assert!(!needs_out_string("$procs = Get-Process"));
-        assert!(!needs_out_string("$global:x = Get-Process | Select-Object Id"));
+        assert!(!needs_out_host("$procs = Get-Process"));
+        assert!(!needs_out_host("$global:x = Get-Process | Select-Object Id"));
     }
 
     #[test]
     fn skips_control_flow() {
-        assert!(!needs_out_string("foreach ($p in Get-Process) { $p.Name }"));
-        assert!(!needs_out_string("if ($true) { Get-Process }"));
-        assert!(!needs_out_string("while ($x -lt 5) { $x++ }"));
+        assert!(!needs_out_host("foreach ($p in Get-Process) { $p.Name }"));
+        assert!(!needs_out_host("if ($true) { Get-Process }"));
+        assert!(!needs_out_host("while ($x -lt 5) { $x++ }"));
     }
 
     #[test]
     fn skips_semicolon_separated_statements() {
-        assert!(!needs_out_string("Get-Process; Get-Service"));
+        assert!(!needs_out_host("Get-Process; Get-Service"));
     }
 
     #[test]
     fn semicolon_inside_quotes_does_not_bail() {
-        assert!(needs_out_string("Write-Output 'a;b' | Select-Object"));
+        assert!(needs_out_host("Write-Output 'a;b' | Select-Object"));
     }
 
     #[test]
     fn flags_where_object_terminal() {
-        assert!(needs_out_string(
+        assert!(needs_out_host(
             "Get-Process | Where-Object { $_.CPU -gt 10 }"
         ));
     }
 
     #[test]
     fn flags_get_childitem() {
-        assert!(needs_out_string("Get-ChildItem . -Recurse"));
+        assert!(needs_out_host("Get-ChildItem . -Recurse"));
     }
 
     #[test]
     fn empty_or_whitespace_returns_false() {
-        assert!(!needs_out_string(""));
-        assert!(!needs_out_string("   "));
-        assert!(!needs_out_string("\n\t"));
+        assert!(!needs_out_host(""));
+        assert!(!needs_out_host("   "));
+        assert!(!needs_out_host("\n\t"));
     }
 
     #[test]
     fn quoted_pipe_does_not_split_last_segment() {
         // `'a | b'` is one token; the real last segment is `Select-Object`.
-        assert!(needs_out_string("Write-Output 'a | b' | Select-Object"));
+        assert!(needs_out_host("Write-Output 'a | b' | Select-Object"));
     }
 
     #[test]
     fn format_tableish_does_not_match_format_table() {
         // Sanity: `Format-Tableish` (hypothetical) must not be treated as terminal.
-        assert!(needs_out_string("Get-Process | Format-Tableish"));
+        assert!(needs_out_host("Get-Process | Format-Tableish"));
     }
 }

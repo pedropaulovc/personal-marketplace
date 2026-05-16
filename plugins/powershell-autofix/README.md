@@ -1,6 +1,6 @@
 # powershell-autofix
 
-PreToolUse hook for Claude Code that auto-appends `| Out-String` to PowerShell commands whose output would otherwise be silently swallowed.
+PreToolUse hook for Claude Code that auto-appends `| Out-Host` to PowerShell commands whose output would otherwise be silently swallowed.
 
 ## The bug it works around
 
@@ -14,15 +14,17 @@ When you invoke the Claude Code `PowerShell` tool with a command that ends in so
 
 …which looks identical to "no matching results" or "command failed silently."
 
-Appending `| Out-String` to the same command makes the output appear correctly. This plugin does that automatically.
+Appending `| Out-Host` to the same command makes the output appear correctly. This plugin does that automatically.
+
+**Why `Out-Host` rather than `Out-String`?** Empirically (see byte-level diff in the changelog), `| Out-Host` produces byte-identical output to a user-written `| Format-Table`: same ANSI escape codes, same CRLF line endings, same column alignment. `Out-Host` is exactly the cmdlet pwsh.exe's implicit `Out-Default` routes to at end of pipeline, so the rewrite puts the runspace back on its natural rails. `| Out-String` is a parallel path that strips ANSI and (in this tool's capture stage) triggers a leading-whitespace trim, producing visibly different — and inconsistent — output.
 
 ## How it works
 
 `PreToolUse` is registered for `matcher: "PowerShell"`. When Claude attempts to run a PowerShell command, the hook:
 
 1. Inspects the command string.
-2. Runs `needs_out_string(command)` — a heuristic that decides whether the command's final pipeline stage would emit unrendered objects.
-3. If yes, returns `hookSpecificOutput.updatedInput` with `command` rewritten to `<command> | Out-String`. The tool then executes the fixed command.
+2. Runs `needs_out_host(command)` — a heuristic that decides whether the command's final pipeline stage would emit unrendered objects.
+3. If yes, returns `hookSpecificOutput.updatedInput` with `command` rewritten to `<command> | Out-Host`. The tool then executes the fixed command.
 4. If no, the hook is a silent no-op.
 
 The fix is intentionally additive — it never blocks the call.
