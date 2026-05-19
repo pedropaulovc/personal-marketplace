@@ -28,9 +28,13 @@ git branch -vv \
 # Reset current worktree to origin/main
 git checkout main
 git reset --hard origin/main
-git checkout "$FOLDER_NAME"
-git reset --hard origin/main
-git branch --unset-upstream 2>/dev/null || true
+
+# If the folder name matches a separate branch (worktree workflow), reset it too
+if [[ "$FOLDER_NAME" != "main" ]] && git show-ref --verify --quiet "refs/heads/$FOLDER_NAME"; then
+    git checkout "$FOLDER_NAME"
+    git reset --hard origin/main
+    git branch --unset-upstream 2>/dev/null || true
+fi
 
 # Install dependencies in current worktree
 npm install
