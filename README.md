@@ -1,40 +1,43 @@
 # personal-marketplace
 
-Personal plugin marketplace for Claude Code agents.
+A Claude Code plugin marketplace of 11 hooks, skills, and commands focused on engineering rigor, GitHub workflow, Windows quirks, and one very specific CAD niche.
 
-## Installation
-
-Add this marketplace to your Claude Code configuration:
+## Install
 
 ```bash
-/plugin marketplace add pedropaulovc/agents-plugins
-/plugin add pedropaulovc@agents-plugins
+/plugin marketplace add pedropaulovc/personal-marketplace
+/plugin install <plugin-name>@personal-marketplace
 ```
 
-## Available Plugins
+## Featured
 
-### pedropaulovc (v1.0.0)
+### [mediocrity-detector](plugins/mediocrity-detector)
 
-Personal productivity plugins for daily development workflows.
+Rust `Stop` hook that detects hedging language in the current turn, blocks the stop, and prompts Claude to report each assumption explicitly so you can make the judgement call.
 
-**Commands:**
-- `/comments` - Fetch PR comments for LLM consumption
-- `/m` - Reset worktree to origin/main
+### [unrelated-issue-detector](plugins/unrelated-issue-detector)
 
-**Skills:**
-- `issue/` - Create well-structured GitHub issues
+Rust `PostToolUse` hook that detects when Claude dismisses findings as unrelated or pre-existing and asks for evidence on each dismissal.
 
-### superpowers (v4.1.1)
+### [developing-solidworks](plugins/developing-solidworks)
 
-Fork of [Superpowers](https://github.com/obra/superpowers) - A complete software development workflow for your coding agents, built on top of a set of composable "skills" and some initial instructions that make sure your agent uses them.
+The only Claude Code skill targeting the SolidWorks .NET COM API. Documentation-first workflow, COM-interop code-quality patterns, real-bug learnings (`FeatureCut4` returning null, extrusion failures, faulty-geometry detection), and a `/download-solidworks-docs` command that pulls the offline API doc bundle into the skill folder. If you're not writing C# against SolidWorks you don't need this — but if you are, there's nothing else.
 
-### developing-solidworks (v0.1.0)
+## All plugins
 
-C# + SolidWorks API skill: documentation-first workflow, code-quality patterns for COM interop, learnings from real bugs (`FeatureCut4` returning null, extrusion failures, faulty geometry), and a `/download-solidworks-docs` command that fetches the offline API doc bundle into the skill folder. Extracted from [pedropaulovc/harmonic-analyzer](https://github.com/pedropaulovc/harmonic-analyzer).
-
-### powershell-autofix (v0.3.0)
-
-PreToolUse hook that auto-appends `| Out-Host` to PowerShell commands whose output would otherwise be silently dropped by the Claude Code PowerShell tool (see [anthropics/claude-code#59609](https://github.com/anthropics/claude-code/issues/59609)). Lets the model run idiomatic PowerShell one-liners without defensively tacking on `Format-Table`. The Out-Host terminator was chosen over Out-String because it produces byte-identical output to a user-written `| Format-Table`, unifying both paths.
+| Plugin | Type | What it does |
+|---|---|---|
+| [mediocrity-detector](plugins/mediocrity-detector) | Hook | Detects hedging on `Stop` and pushes back |
+| [unrelated-issue-detector](plugins/unrelated-issue-detector) | Hook | Demands evidence for each "unrelated/pre-existing" dismissal |
+| [developing-solidworks](plugins/developing-solidworks) | Skill + Command | C#/SolidWorks API workflow |
+| [powershell-autofix](plugins/powershell-autofix) | Hook | Auto-appends `\| Out-Host` to fix [claude-code#59609](https://github.com/anthropics/claude-code/issues/59609) |
+| [windows-bash-guard](plugins/windows-bash-guard) | Hook | Auto-fixes Windows+bash path pitfalls (backslashes, `/dev/stdin`) before execution |
+| [no-fetch](plugins/no-fetch) | Hook | Blocks `WebFetch` and redirects to Firecrawl + Browserbase MCPs |
+| [gh-issue](plugins/gh-issue) | Skill | Turns terse bug reports into well-structured GitHub issues via `gh` |
+| [pr-comments](plugins/pr-comments) | Skill | Fetches unresolved PR comments formatted for LLM review and reply |
+| [worktree-reset](plugins/worktree-reset) | Skill | `/m` — resets the current worktree to `origin/main` and reinstalls deps |
+| [gstack-entrepreneur](plugins/gstack-entrepreneur) | Skills | Entrepreneurship subset of gstack: idea validation, market research, strategy (no code) |
+| [superpowers](plugins/superpowers) | Skills | Fork of [obra/superpowers](https://github.com/obra/superpowers) — TDD, debugging, collaboration patterns |
 
 ## License
 
