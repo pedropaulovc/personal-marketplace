@@ -121,9 +121,13 @@ fn main() {
         process::exit(0);
     }
 
-    let list = findings.join(", ");
+    let list = findings
+        .iter()
+        .map(|f| format!("  - {}", f))
+        .collect::<Vec<_>>()
+        .join("\n");
     let reason = format!(
-        "Shortcut/assumption language detected in this turn: [{}]. \
+        "Shortcut/assumption language detected in this turn:\n{}\n\n\
          Before stopping, explicitly report to the user each shortcut or assumption. \
          For each: (1) what exactly you did and where, (2) why you chose this approach, \
          (3) what a complete solution looks like. Be specific — the user needs to make \
@@ -166,23 +170,105 @@ fn find_turn_start(lines: &[&str]) -> usize {
 // ---------------------------------------------------------------------------
 
 /// Scan text for hedging patterns (case-insensitive) and code markers
-/// (case-sensitive). Deduplicates via `seen`.
+/// (case-sensitive). Deduplicates via `seen`. Each finding includes the
+/// surrounding phrase so the user can see the trigger in context.
 fn scan_text(text: &str, findings: &mut Vec<String>, seen: &mut HashSet<String>) {
-    let lower = text.to_lowercase();
-
     for &pattern in PATTERNS {
-        if !seen.contains(pattern) && lower.contains(pattern) {
-            findings.push(format!("\"{}\"", pattern));
+        if seen.contains(pattern) {
+            continue;
+        }
+        if let Some(pos) = find_case_insensitive(text, pattern) {
+            let phrase = extract_phrase(text, pos, pattern.len());
+            findings.push(format!("\"{}\" → \"{}\"", pattern, phrase));
             seen.insert(pattern.to_string());
         }
     }
 
     for &marker in CODE_MARKERS {
-        if !seen.contains(marker) && text.contains(marker) {
-            findings.push(format!("{} comment", marker));
+        if seen.contains(marker) {
+            continue;
+        }
+        if let Some(pos) = text.find(marker) {
+            let phrase = extract_phrase(text, pos, marker.len());
+            findings.push(format!("{} comment → \"{}\"", marker, phrase));
             seen.insert(marker.to_string());
         }
     }
+}
+
+/// Case-insensitive byte-level substring search (ASCII-folding only).
+/// Returns the byte offset of the first match in `haystack`.
+fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
+    let h = haystack.as_bytes();
+    let n = needle.as_bytes();
+    if n.is_empty() || h.len() < n.len() {
+        return None;
+    }
+    'outer: for i in 0..=(h.len() - n.len()) {
+        for j in 0..n.len() {
+            if !h[i + j].eq_ignore_ascii_case(&n[j]) {
+                continue 'outer;
+            }
+        }
+        return Some(i);
+    }
+    None
+}
+
+/// Extract the surrounding sentence containing the match at `match_start`.
+/// Sentence boundaries are `.`, `!`, `?`, `\n`. A per-side cap of 120 bytes
+/// keeps runaway paragraphs short. Result is whitespace-trimmed and has
+/// newlines flattened to spaces.
+fn extract_phrase(text: &str, match_start: usize, match_len: usize) -> String {
+    const MAX_PER_SIDE: usize = 120;
+    let bytes = text.as_bytes();
+
+    let lo_bound = match_start.saturating_sub(MAX_PER_SIDE);
+    let hi_bound = (match_start + match_len + MAX_PER_SIDE).min(bytes.len());
+
+    let mut start = match_start;
+    while start > lo_bound {
+        if matches!(bytes[start - 1], b'.' | b'!' | b'?' | b'\n') {
+            break;
+        }
+        start -= 1;
+    }
+
+    let mut end = match_start + match_len;
+    while end < hi_bound {
+        if matches!(bytes[end], b'.' | b'!' | b'?' | b'\n') {
+            end += 1; // include the punctuation
+            break;
+        }
+        end += 1;
+    }
+
+    // Snap to UTF-8 char boundaries.
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    while end < text.len() && !text.is_char_boundary(end) {
+        end += 1;
+    }
+
+    let snippet: String = text[start..end]
+        .replace('\n', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let prefix = if start > 0 && !matches!(bytes[start - 1], b'.' | b'!' | b'?' | b'\n') {
+        "…"
+    } else {
+        ""
+    };
+    let suffix = if end < bytes.len() && !matches!(bytes[end - 1], b'.' | b'!' | b'?' | b'\n') {
+        "…"
+    } else {
+        ""
+    };
+
+    format!("{}{}{}", prefix, snippet, suffix)
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +393,70 @@ mod tests {
             &mut seen,
         );
         assert!(findings.iter().any(|f| f.contains("FIXME")));
+    }
+
+    // -- Phrase extraction ----------------------------------------------------
+
+    #[test]
+    fn finding_includes_surrounding_phrase() {
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text(
+            "I added a temporary workaround for the race condition.",
+            &mut findings,
+            &mut seen,
+        );
+        // The "temporary" finding should include the full sentence as context.
+        let temp = findings
+            .iter()
+            .find(|f| f.starts_with("\"temporary\""))
+            .expect("temporary finding present");
+        assert!(
+            temp.contains("temporary workaround for the race condition"),
+            "expected surrounding phrase, got: {}",
+            temp
+        );
+    }
+
+    #[test]
+    fn phrase_uses_sentence_boundary() {
+        let phrase = extract_phrase(
+            "Here is some context. I added a temporary fix. Then I moved on.",
+            "Here is some context. I added a ".len(),
+            "temporary".len(),
+        );
+        assert_eq!(phrase, "I added a temporary fix.");
+    }
+
+    #[test]
+    fn phrase_handles_newline_boundary() {
+        let text = "Line one\nThis is a temporary thing\nLine three";
+        let pos = text.find("temporary").unwrap();
+        let phrase = extract_phrase(text, pos, "temporary".len());
+        assert_eq!(phrase, "This is a temporary thing");
+    }
+
+    #[test]
+    fn phrase_caps_long_runs() {
+        // No sentence punctuation — should cap and emit ellipsis markers.
+        let prefix = "a ".repeat(200);
+        let suffix = " b".repeat(200);
+        let text = format!("{}temporary{}", prefix, suffix);
+        let pos = prefix.len();
+        let phrase = extract_phrase(&text, pos, "temporary".len());
+        assert!(phrase.contains("temporary"));
+        assert!(phrase.starts_with('…'), "expected leading ellipsis, got: {}", phrase);
+        assert!(phrase.ends_with('…'), "expected trailing ellipsis, got: {}", phrase);
+        assert!(phrase.len() < text.len(), "expected truncation");
+    }
+
+    #[test]
+    fn phrase_handles_utf8() {
+        // Multi-byte chars on both sides; should not panic.
+        let text = "Résumé note — added a temporary fix — café.";
+        let pos = text.find("temporary").unwrap();
+        let phrase = extract_phrase(text, pos, "temporary".len());
+        assert!(phrase.contains("temporary"));
     }
 
     // -- Transcript parsing ---------------------------------------------------
