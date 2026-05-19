@@ -15,6 +15,17 @@ done
 CURRENT_WORKTREE=$(pwd)
 FOLDER_NAME="${FOLDER_NAME:-$(basename "$CURRENT_WORKTREE")}"
 
+install_deps() {
+    if [[ -f package.json ]]; then
+        echo "Found package.json, running npm install..."
+        npm install
+    fi
+    if [[ -f go.mod ]]; then
+        echo "Found go.mod, running go mod download..."
+        go mod download
+    fi
+}
+
 # Fetch and prune remote tracking branches
 git fetch --prune
 
@@ -37,7 +48,7 @@ if [[ "$FOLDER_NAME" != "main" ]] && git show-ref --verify --quiet "refs/heads/$
 fi
 
 # Install dependencies in current worktree
-npm install
+install_deps
 
 if [[ "$RESET_ALL" != "true" ]]; then
     echo ""
@@ -70,8 +81,7 @@ git worktree list --porcelain | grep '^worktree ' | cut -d' ' -f2- | while read 
             echo "Rebase failed or had conflicts, aborting..."
             git rebase --abort 2>/dev/null || true
         }
-        echo "Running npm install..."
-        npm install
+        install_deps
     )
 done
 
