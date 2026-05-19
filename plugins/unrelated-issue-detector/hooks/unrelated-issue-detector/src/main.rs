@@ -1,59 +1,76 @@
 //! PostToolUse hook that detects when the agent dismisses issues as "unrelated"
-//! or "pre-existing" and forces investigation via a parallel worktree agent.
+//! or "pre-existing".
 //!
-//! Fires after every tool call. Reads only NEW transcript content since the
-//! last check (tracked via a per-session offset file) so each dismissal is
-//! caught exactly once without re-triggering on old matches.
+//! Strategy: trust but verify. Scans NEW transcript content since the last check
+//! (via a per-session offset file) for narrow dismissal phrases. If any are
+//! found, blocks the tool call and asks Claude to surface evidence for each
+//! dismissal so the user can make the judgement call.
 
-use regex::RegexSet;
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::process;
 
-const DISMISSAL_PATTERNS: &[&str] = &[
-    r"(?:existing|pre-existing|preexisting)\s+(?:issues?|bugs?|problems?|errors?|defects?)",
-    r"(?:not|isn'?t|aren'?t|is\s+not|are\s+not)\s+(?:related|caused|introduced)\s+(?:to|by)\s+(?:this|our|the|my)",
-    r"unrelated\s+(?:issues?|bugs?|problems?|errors?|to\s+(?:this|our|the))",
-    r"separate\s+(?:issues?|bugs?|problems?|concerns?|matters?)",
-    r"(?:outside|beyond)\s+(?:the\s+)?scope\s+of\s+(?:this|our|the)",
-    r"(?:was\s+)?already\s+(?:present|broken|failing|there)\s+(?:before|on\s+main|in\s+main)",
-    r"known\s+(?:issues?|bugs?|problems?|limitations?)",
-    r"not\s+something\s+we\s+introduced",
-    r"(?:this|the|these)\s+(?:issues?|bugs?|problems?|errors?)\s+(?:is|are|was|were|appears?)\s+(?:to\s+be\s+)?(?:pre-existing|preexisting|unrelated)",
+/// Dismissal phrases matched case-insensitively. Kept narrow on purpose so the
+/// hook only fires when the agent is *actually* dismissing an issue, not when
+/// it incidentally mentions the words "unrelated" or "pre-existing".
+const PATTERNS: &[&str] = &[
+    // Pre-existing
+    "pre-existing issue",
+    "pre-existing bug",
+    "pre-existing problem",
+    "pre-existing failure",
+    "pre-existing error",
+    "preexisting issue",
+    "preexisting bug",
+    "preexisting problem",
+    "preexisting failure",
+    "preexisting error",
+    // Unrelated to this/my/the change/PR/work
+    "unrelated to this change",
+    "unrelated to my change",
+    "unrelated to the change",
+    "unrelated to these changes",
+    "unrelated to my changes",
+    "unrelated to this pr",
+    "unrelated to my pr",
+    "unrelated to this work",
+    "unrelated to this task",
+    "unrelated to this fix",
+    // Not related / not caused / not introduced
+    "not related to this change",
+    "not related to my change",
+    "not related to these changes",
+    "not related to my changes",
+    "not caused by this change",
+    "not caused by my change",
+    "not caused by these changes",
+    "not introduced by this change",
+    "not introduced by my change",
+    "not introduced by these changes",
+    "not introduced by my changes",
+    "not something we introduced",
+    "not something i introduced",
+    // Already broken / failing on main
+    "already broken on main",
+    "already failing on main",
+    "already failing before",
+    "already broken before",
+    "already present on main",
+    "broken on main",
+    // Out of scope
+    "outside the scope of this",
+    "outside the scope of my",
+    "beyond the scope of this",
+    "out of scope for this",
+    // Separate
+    "separate issue from",
+    "separate bug from",
+    "separate concern from",
 ];
-
-const INVESTIGATION_INSTRUCTIONS: &str = "\
-STOP. You just dismissed an issue as \"unrelated\" or \"pre-existing\". \
-You MUST investigate before moving on.\n\
-\n\
-Spawn an agent in your agent team with these parameters:\n\
-- subagent_type: \"general-purpose\"\n\
-- model: \"opus\"\n\
-- run_in_background: false\n\
-\n\
-In the prompt, include the FULL description of the issue you dismissed \
-(error messages, symptoms, affected code, reproduction steps).\n\
-\n\
-Tell the agent to:\n\
-1. Create a worktree: `git worktree add -b investigate-issue .claude/worktrees/investigation main`\n\
-2. cd into the worktree.\n\
-3. Run /systematic-debugging [full description of the issue]\n\
-4. Attempt to reproduce the issue on main.\n\
-5. If it **REPRODUCES on main** (truly pre-existing): file a GitHub issue \
-using `gh issue create` with a clear title, full description, repro steps, \
-expected vs actual behavior, and label `bug`.\n\
-6. If it does **NOT reproduce on main**: report back that the issue was \
-introduced by the current changes.\n\
-7. Clean up: `git worktree remove .claude/worktrees/investigation`\n\
-\n\
-After the agent completes:\n\
-- If a bug was filed (truly pre-existing): you may continue.\n\
-- If the issue is NOT pre-existing: you MUST fix it. Do NOT dismiss it again.\n\
-\n\
-Do NOT skip this. Do NOT dismiss issues without evidence.";
 
 fn offset_path(session_id: &str) -> PathBuf {
     let mut p = env::temp_dir();
@@ -79,9 +96,7 @@ fn extract_assistant_text(entry: &Value) -> String {
     let content = if role == "assistant" {
         entry.get("content")
     } else if msg_type == "assistant" {
-        entry
-            .get("message")
-            .and_then(|m| m.get("content"))
+        entry.get("message").and_then(|m| m.get("content"))
     } else {
         return String::new();
     };
@@ -109,6 +124,16 @@ fn extract_assistant_text(entry: &Value) -> String {
     }
 
     String::new()
+}
+
+fn scan_text(text: &str, findings: &mut Vec<String>, seen: &mut HashSet<String>) {
+    let lower = text.to_lowercase();
+    for &pattern in PATTERNS {
+        if !seen.contains(pattern) && lower.contains(pattern) {
+            findings.push(format!("\"{}\"", pattern));
+            seen.insert(pattern.to_string());
+        }
+    }
 }
 
 fn main() {
@@ -161,8 +186,9 @@ fn main() {
     // Always advance the offset so we never re-scan the same content.
     save_offset(session_id, current_size);
 
-    // Extract assistant text from new transcript entries.
-    let mut texts = Vec::new();
+    let mut findings = Vec::new();
+    let mut seen = HashSet::new();
+
     for line in new_content.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -171,26 +197,156 @@ fn main() {
         if let Ok(entry) = serde_json::from_str::<Value>(line) {
             let text = extract_assistant_text(&entry);
             if !text.is_empty() {
-                texts.push(text);
+                scan_text(&text, &mut findings, &mut seen);
             }
         }
     }
 
-    let combined = texts.join("\n").to_lowercase();
-
-    if combined.is_empty() {
+    if findings.is_empty() {
         process::exit(0);
     }
 
-    let set = RegexSet::new(DISMISSAL_PATTERNS).expect("invalid regex patterns");
-    if !set.is_match(&combined) {
-        process::exit(0);
+    let list = findings.join(", ");
+    let reason = format!(
+        "Dismissal language detected in this turn: [{}]. Before moving on, \
+         explicitly report to the user each issue you dismissed. For each: \
+         (1) the exact symptom (error message, failing test, unexpected behavior), \
+         (2) the evidence it is pre-existing or unrelated (commit hash, line on main, \
+         a repro on main), (3) what you would investigate further if asked. \
+         Be specific — the user needs to make an informed judgement call.",
+        list
+    );
+
+    println!("{}", json!({"decision": "block", "reason": reason}));
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_pre_existing_issue() {
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text(
+            "This is a pre-existing issue on main, not from my work.",
+            &mut findings,
+            &mut seen,
+        );
+        assert!(findings.iter().any(|f| f.contains("pre-existing issue")));
     }
 
-    // Inject investigation instructions into the agent's next loop iteration.
-    let output = serde_json::json!({
-        "decision": "block",
-        "reason": INVESTIGATION_INSTRUCTIONS
-    });
-    println!("{}", output);
+    #[test]
+    fn detects_unrelated_to_this_change() {
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text(
+            "That failing test is unrelated to this change.",
+            &mut findings,
+            &mut seen,
+        );
+        assert!(findings.iter().any(|f| f.contains("unrelated to this change")));
+    }
+
+    #[test]
+    fn detects_already_broken_on_main() {
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text(
+            "Skipping this — it was already broken on main before I touched anything.",
+            &mut findings,
+            &mut seen,
+        );
+        assert!(findings.iter().any(|f| f.contains("already broken on main")));
+    }
+
+    #[test]
+    fn ignores_incidental_unrelated_mention() {
+        // Narrow patterns must not fire on bare "unrelated" usage.
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text(
+            "The two features are unrelated by design, so they live in separate modules.",
+            &mut findings,
+            &mut seen,
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn ignores_incidental_preexisting_mention() {
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text(
+            "Reuse the pre-existing configuration loader instead of writing a new one.",
+            &mut findings,
+            &mut seen,
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn case_insensitive_match() {
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text(
+            "This is Unrelated To This Change.",
+            &mut findings,
+            &mut seen,
+        );
+        assert!(findings.iter().any(|f| f.contains("unrelated to this change")));
+    }
+
+    #[test]
+    fn deduplicates() {
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text("pre-existing issue here", &mut findings, &mut seen);
+        scan_text("another pre-existing issue", &mut findings, &mut seen);
+        let count = findings
+            .iter()
+            .filter(|f| f.contains("pre-existing issue"))
+            .count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn detects_not_introduced_by() {
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text(
+            "That warning was not introduced by this change.",
+            &mut findings,
+            &mut seen,
+        );
+        assert!(findings.iter().any(|f| f.contains("not introduced by this change")));
+    }
+
+    #[test]
+    fn detects_out_of_scope() {
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text(
+            "Fixing that is out of scope for this PR.",
+            &mut findings,
+            &mut seen,
+        );
+        assert!(findings.iter().any(|f| f.contains("out of scope for this")));
+    }
+
+    #[test]
+    fn clean_text_no_findings() {
+        let mut findings = Vec::new();
+        let mut seen = HashSet::new();
+        scan_text(
+            "I fixed the failing test and verified the regression locally.",
+            &mut findings,
+            &mut seen,
+        );
+        assert!(findings.is_empty());
+    }
 }
