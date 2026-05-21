@@ -30,7 +30,6 @@ The only Claude Code skill targeting the SolidWorks .NET COM API. Anti-hallucina
 | [mediocrity-detector](plugins/mediocrity-detector) | Hook | Detects hedging on `Stop` and pushes back |
 | [unrelated-issue-detector](plugins/unrelated-issue-detector) | Hook | Demands evidence for each "unrelated/pre-existing" dismissal |
 | [developing-solidworks](plugins/developing-solidworks) | Skill + Command | C#/SolidWorks API workflow |
-| [powershell-autofix](plugins/powershell-autofix) | Hook | Auto-appends `\| Out-Host` to fix [claude-code#59609](https://github.com/anthropics/claude-code/issues/59609) |
 | [no-fetch](plugins/no-fetch) | Hook | Blocks `WebFetch` and redirects to Firecrawl + Browserbase MCPs |
 | [gh-issue](plugins/gh-issue) | Skill | Turns terse bug reports into well-structured GitHub issues via `gh` |
 | [pr-comments](plugins/pr-comments) | Skill | Fetches unresolved PR comments formatted for LLM review and reply |
