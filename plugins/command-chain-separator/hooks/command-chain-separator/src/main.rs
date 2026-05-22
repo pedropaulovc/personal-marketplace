@@ -20,8 +20,10 @@ use std::process;
 
 /// String spliced in *after* each separator. The original separator is
 /// reissued at the end so the chain stays valid: e.g., `&&` becomes
-/// `&& echo "..." &&`.
-const INJECT_PREFIX: &str = " echo \"\\n\\n ========= \\n\\n\" ";
+/// `&& printf '...' &&`. `printf` is used (not `echo`) so the `\n` escapes
+/// are interpreted as real newlines on every shell; single-quoting prevents
+/// the shell from touching the backslashes before `printf` sees them.
+const INJECT_PREFIX: &str = " printf '\\n\\n ========= \\n\\n' ";
 
 fn main() {
     let mut input = String::new();
@@ -69,7 +71,7 @@ fn main() {
             "hookEventName": "PreToolUse",
             "updatedInput": updated,
             "additionalContext": format!(
-                "command-chain-separator: inserted {} output separator{} between commands joined by `&&` or `;`. Each prints `\\n\\n ========= \\n\\n` so per-command output is visually segmented. To bypass, add [no-rewrite] to the tool description.",
+                "command-chain-separator: inserted {} output separator{} between commands joined by `&&` or `;`. Each prints two blank lines and a `=========` marker so per-command output is visually segmented. To bypass, add [no-rewrite] to the tool description.",
                 rw.count, plural
             )
         }
@@ -399,7 +401,7 @@ mod tests {
     fn injects_between_two_amp_amp_commands() {
         assert_eq!(
             out("cmd1 && cmd2"),
-            "cmd1 && echo \"\\n\\n ========= \\n\\n\" && cmd2"
+            "cmd1 && printf '\\n\\n ========= \\n\\n' && cmd2"
         );
     }
 
@@ -412,17 +414,17 @@ mod tests {
     fn injects_at_semicolon() {
         assert_eq!(
             out("cmd1 ; cmd2"),
-            "cmd1 ; echo \"\\n\\n ========= \\n\\n\" ; cmd2"
+            "cmd1 ; printf '\\n\\n ========= \\n\\n' ; cmd2"
         );
     }
 
     #[test]
     fn injects_at_semicolon_no_spaces() {
-        // `cmd1;cmd2` → `cmd1; echo "..." ;cmd2`. The injected `echo` keeps
+        // `cmd1;cmd2` → `cmd1; printf '...' ;cmd2`. The injected printf keeps
         // a leading space so the original operator stays delimited.
         assert_eq!(
             out("cmd1;cmd2"),
-            "cmd1; echo \"\\n\\n ========= \\n\\n\" ;cmd2"
+            "cmd1; printf '\\n\\n ========= \\n\\n' ;cmd2"
         );
     }
 
@@ -430,7 +432,7 @@ mod tests {
     fn injects_in_mixed_chain() {
         assert_eq!(
             out("a && b ; c"),
-            "a && echo \"\\n\\n ========= \\n\\n\" && b ; echo \"\\n\\n ========= \\n\\n\" ; c"
+            "a && printf '\\n\\n ========= \\n\\n' && b ; printf '\\n\\n ========= \\n\\n' ; c"
         );
     }
 
@@ -485,7 +487,7 @@ mod tests {
     fn injects_around_quoted_strings_that_contain_separators() {
         assert_eq!(
             out("echo 'a && b' && ls"),
-            "echo 'a && b' && echo \"\\n\\n ========= \\n\\n\" && ls"
+            "echo 'a && b' && printf '\\n\\n ========= \\n\\n' && ls"
         );
     }
 
@@ -506,7 +508,7 @@ mod tests {
     fn injects_around_subshell_at_top_level() {
         assert_eq!(
             out("(cd /tmp && ls) && echo done"),
-            "(cd /tmp && ls) && echo \"\\n\\n ========= \\n\\n\" && echo done"
+            "(cd /tmp && ls) && printf '\\n\\n ========= \\n\\n' && echo done"
         );
     }
 

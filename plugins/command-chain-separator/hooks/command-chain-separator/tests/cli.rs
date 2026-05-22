@@ -202,6 +202,6 @@ fn rewrite_produces_valid_chain_structure() {
     let cmd = h["updatedInput"]["command"].as_str().unwrap();
     // && should appear twice (original + injected)
     assert_eq!(cmd.matches("&&").count(), 2, "cmd={cmd}");
-    // Exactly one echo
-    assert_eq!(cmd.matches("echo \"\\n\\n ========= \\n\\n\"").count(), 1);
+    // Exactly one printf separator
+    assert_eq!(cmd.matches("printf '\\n\\n ========= \\n\\n'").count(), 1);
 }
