@@ -1,15 +1,23 @@
 //! PreToolUse hook that enforces `--headed` on `playwright-cli open` invocations
-//! in Bash and PowerShell commands.
+//! in Bash and PowerShell commands and nudges toward a standard viewport size.
 //!
-//! Rule: any `playwright-cli ... open ...` invocation must include `--headed`.
-//! When missing, the hook auto-injects ` --headed` immediately after the `open`
-//! subcommand token, leaving the rest of the command byte-for-byte unchanged.
+//! Rules:
+//! 1. Any `playwright-cli ... open ...` invocation must include `--headed`.
+//!    When missing, the hook auto-injects ` --headed` immediately after the
+//!    `open` subcommand token, leaving the rest of the command byte-for-byte
+//!    unchanged.
+//! 2. Whenever `playwright-cli open` is detected (regardless of `--headed`),
+//!    a system reminder recommends running `playwright-cli resize 1600 900`
+//!    first for consistent screenshot dimensions.
 //!
-//! Returns JSON with `updatedInput` so Claude Code executes the corrected
-//! command transparently. Claude can bypass rewriting by adding `[no-rewrite]`
-//! to the tool description.
+//! Output:
+//! - `updatedInput` is included when a rewrite happened.
+//! - `additionalContext` is included whenever `playwright-cli open` is seen.
+//!
+//! Claude can bypass rewriting (but not the tip) by adding `[no-rewrite]` to
+//! the tool description.
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::io::{self, Read};
 use std::process;
 
@@ -38,51 +46,60 @@ fn main() {
         .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-
-    if description.contains("[no-rewrite]") {
-        process::exit(0);
-    }
+    let bypass_rewrite = description.contains("[no-rewrite]");
 
     let command = match tool_input.get("command").and_then(|v| v.as_str()) {
         Some(c) if !c.is_empty() => c,
         _ => process::exit(0),
     };
 
-    if let Some(fixed) = fix_command(command) {
-        let mut updated = tool_input.as_object().cloned().unwrap_or_default();
-        updated.insert("command".into(), Value::String(fixed.command));
-
-        let output = json!({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "updatedInput": updated,
-                "additionalContext": fixed.context
-            }
-        });
-        println!("{}", output);
+    let analysis = analyze(command, bypass_rewrite);
+    if !analysis.open_detected {
+        process::exit(0);
     }
 
+    let mut hook_output = Map::new();
+    hook_output.insert(
+        "hookEventName".into(),
+        Value::String("PreToolUse".into()),
+    );
+
+    if analysis.rewrites > 0 {
+        let mut updated = tool_input.as_object().cloned().unwrap_or_default();
+        updated.insert("command".into(), Value::String(analysis.command));
+        hook_output.insert("updatedInput".into(), Value::Object(updated));
+    }
+
+    hook_output.insert(
+        "additionalContext".into(),
+        Value::String(build_context(analysis.rewrites, bypass_rewrite)),
+    );
+
+    println!("{}", json!({ "hookSpecificOutput": hook_output }));
     process::exit(0);
 }
 
 // ---------------------------------------------------------------------------
-// Fix orchestrator
+// Analysis
 // ---------------------------------------------------------------------------
 
-struct FixResult {
+struct Analysis {
+    /// True when at least one `playwright-cli ... open ...` invocation was seen.
+    open_detected: bool,
+    /// Number of `--headed` insertions made.
+    rewrites: usize,
+    /// Possibly-rewritten command (equal to the input when `rewrites == 0`).
     command: String,
-    context: String,
 }
 
 const NEEDLE: &[u8] = b"playwright-cli";
 
-/// Apply the fix across every `playwright-cli` invocation in the command.
-/// Returns `Some(FixResult)` if any invocation was rewritten.
-fn fix_command(command: &str) -> Option<FixResult> {
+fn analyze(command: &str, bypass_rewrite: bool) -> Analysis {
     let bytes = command.as_bytes();
     let mut result = String::with_capacity(command.len() + 16);
     let mut cursor = 0;
-    let mut rewrites = 0;
+    let mut rewrites = 0usize;
+    let mut open_detected = false;
     let mut i = 0;
 
     while i + NEEDLE.len() <= bytes.len() {
@@ -100,9 +117,6 @@ fn fix_command(command: &str) -> Option<FixResult> {
             continue;
         }
 
-        // Found a playwright-cli invocation at byte i. Determine where its arg
-        // list ends — the next unquoted shell separator (`;`, `|`, `&`, newline)
-        // or end-of-string.
         let args_end = find_args_end(bytes, after);
         let tokens = tokenize(&command[after..args_end], after);
 
@@ -111,7 +125,11 @@ fn fix_command(command: &str) -> Option<FixResult> {
         });
         let open_token = tokens.iter().find(|t| t.text == "open");
 
-        if !has_headed {
+        if open_token.is_some() {
+            open_detected = true;
+        }
+
+        if !has_headed && !bypass_rewrite {
             if let Some(open) = open_token {
                 result.push_str(&command[cursor..open.end]);
                 result.push_str(" --headed");
@@ -123,19 +141,47 @@ fn fix_command(command: &str) -> Option<FixResult> {
         i = args_end;
     }
 
-    if rewrites == 0 {
-        return None;
+    if rewrites > 0 {
+        result.push_str(&command[cursor..]);
+    } else {
+        result.clear();
+        result.push_str(command);
     }
 
-    result.push_str(&command[cursor..]);
-
-    let context = format!(
-        "playwright-cli-headed hook rewrote this command: added `--headed` to {} `playwright-cli open` invocation{} (rule: playwright-cli open must always run --headed so the browser is visible). To bypass rewriting, add [no-rewrite] to the tool description.",
+    Analysis {
+        open_detected,
         rewrites,
-        if rewrites == 1 { "" } else { "s" }
-    );
+        command: result,
+    }
+}
 
-    Some(FixResult { command: result, context })
+// ---------------------------------------------------------------------------
+// Context message
+// ---------------------------------------------------------------------------
+
+const RESIZE_TIP: &str =
+    "It is recommended to execute `playwright-cli resize 1600 900` for better screenshot compatibility.";
+
+fn build_context(rewrites: usize, bypass_rewrite: bool) -> String {
+    if rewrites > 0 {
+        let plural = if rewrites == 1 { "" } else { "s" };
+        return format!(
+            "playwright-cli-headed: added `--headed` to {} `playwright-cli open` invocation{} (rule: playwright-cli open must always run --headed so the browser is visible). To bypass rewriting, add [no-rewrite] to the tool description. {}",
+            rewrites, plural, RESIZE_TIP
+        );
+    }
+
+    if bypass_rewrite {
+        return format!(
+            "playwright-cli-headed: detected `playwright-cli open`; rewriting bypassed via [no-rewrite]. {}",
+            RESIZE_TIP
+        );
+    }
+
+    format!(
+        "playwright-cli-headed: detected `playwright-cli open` (already has --headed). {}",
+        RESIZE_TIP
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +286,6 @@ fn tokenize(slice: &str, base: usize) -> Vec<Token> {
     let mut i = 0;
 
     while i < bytes.len() {
-        // Skip leading whitespace
         while i < bytes.len() && matches!(bytes[i], b' ' | b'\t' | b'\r' | b'\n') {
             i += 1;
         }
@@ -248,10 +293,8 @@ fn tokenize(slice: &str, base: usize) -> Vec<Token> {
             break;
         }
 
-        let start = i;
         let mut text = String::new();
 
-        // Consume the token, which may interleave quoted and unquoted runs
         while i < bytes.len() {
             let b = bytes[i];
             if matches!(b, b' ' | b'\t' | b'\r' | b'\n') {
@@ -259,7 +302,8 @@ fn tokenize(slice: &str, base: usize) -> Vec<Token> {
             }
             if b == b'\'' || b == b'"' {
                 let close = skip_quoted(bytes, i);
-                let inner_end = if close <= bytes.len() && close > i + 1
+                let inner_end = if close <= bytes.len()
+                    && close > i + 1
                     && bytes.get(close - 1).copied() == Some(b)
                 {
                     close - 1
@@ -278,8 +322,6 @@ fn tokenize(slice: &str, base: usize) -> Vec<Token> {
             text,
             end: base + i,
         });
-
-        let _ = start; // suppress unused warning under some configurations
     }
 
     tokens
@@ -293,96 +335,120 @@ fn tokenize(slice: &str, base: usize) -> Vec<Token> {
 mod tests {
     use super::*;
 
-    fn fixed(cmd: &str) -> String {
-        fix_command(cmd).unwrap().command
+    fn run(cmd: &str) -> Analysis {
+        analyze(cmd, false)
     }
 
     // -- Basic insertion -----------------------------------------------------
 
     #[test]
     fn adds_headed_after_open() {
-        assert_eq!(
-            fixed("playwright-cli open https://example.com"),
-            "playwright-cli open --headed https://example.com"
-        );
+        let a = run("playwright-cli open https://example.com");
+        assert!(a.open_detected);
+        assert_eq!(a.rewrites, 1);
+        assert_eq!(a.command, "playwright-cli open --headed https://example.com");
     }
 
     #[test]
     fn adds_headed_with_no_extra_args() {
-        assert_eq!(fixed("playwright-cli open"), "playwright-cli open --headed");
+        let a = run("playwright-cli open");
+        assert_eq!(a.command, "playwright-cli open --headed");
+        assert_eq!(a.rewrites, 1);
     }
 
     #[test]
     fn adds_headed_with_flags_before_open() {
+        let a = run("playwright-cli --verbose open https://example.com");
         assert_eq!(
-            fixed("playwright-cli --verbose open https://example.com"),
+            a.command,
             "playwright-cli --verbose open --headed https://example.com"
         );
     }
 
     #[test]
     fn adds_headed_with_flags_after_open() {
+        let a = run("playwright-cli open --device 'iPhone 15' https://example.com");
         assert_eq!(
-            fixed("playwright-cli open --device 'iPhone 15' https://example.com"),
+            a.command,
             "playwright-cli open --headed --device 'iPhone 15' https://example.com"
         );
     }
 
-    // -- No-op cases ---------------------------------------------------------
+    // -- Tip-only path (open detected, no rewrite) ---------------------------
 
     #[test]
-    fn skips_when_headed_already_present() {
-        assert!(fix_command("playwright-cli open --headed https://example.com").is_none());
+    fn detects_open_when_headed_already_present() {
+        let a = run("playwright-cli open --headed https://example.com");
+        assert!(a.open_detected);
+        assert_eq!(a.rewrites, 0);
+        assert_eq!(a.command, "playwright-cli open --headed https://example.com");
     }
 
     #[test]
-    fn skips_when_headed_appears_before_open() {
-        assert!(fix_command("playwright-cli --headed open https://example.com").is_none());
+    fn detects_open_when_headed_before_open() {
+        let a = run("playwright-cli --headed open https://example.com");
+        assert!(a.open_detected);
+        assert_eq!(a.rewrites, 0);
     }
 
     #[test]
-    fn skips_when_headed_equals_form() {
-        assert!(fix_command("playwright-cli open --headed=true https://example.com").is_none());
+    fn detects_open_when_headed_equals_form() {
+        let a = run("playwright-cli open --headed=true https://example.com");
+        assert!(a.open_detected);
+        assert_eq!(a.rewrites, 0);
     }
 
     #[test]
-    fn skips_when_no_open_subcommand() {
-        assert!(fix_command("playwright-cli codegen https://example.com").is_none());
+    fn bypass_rewrite_still_reports_detection() {
+        let a = analyze("playwright-cli open https://example.com", true);
+        assert!(a.open_detected);
+        assert_eq!(a.rewrites, 0);
+        assert_eq!(a.command, "playwright-cli open https://example.com");
+    }
+
+    // -- Negative cases ------------------------------------------------------
+
+    #[test]
+    fn no_detection_when_no_open_subcommand() {
+        let a = run("playwright-cli codegen https://example.com");
+        assert!(!a.open_detected);
+        assert_eq!(a.rewrites, 0);
     }
 
     #[test]
-    fn skips_when_not_playwright_cli() {
-        assert!(fix_command("playwright open https://example.com").is_none());
+    fn no_detection_when_not_playwright_cli() {
+        let a = run("playwright open https://example.com");
+        assert!(!a.open_detected);
     }
 
     #[test]
-    fn skips_when_playwright_cli_is_substring_of_another_word() {
-        // foo-playwright-cli-bar should not match
-        assert!(fix_command("foo-playwright-cli-bar open https://example.com").is_none());
+    fn no_detection_when_playwright_cli_is_substring() {
+        let a = run("foo-playwright-cli-bar open https://example.com");
+        assert!(!a.open_detected);
     }
 
     // -- Path & shell-context invocations ------------------------------------
 
     #[test]
     fn handles_full_path_invocation() {
+        let a = run("/usr/local/bin/playwright-cli open https://example.com");
         assert_eq!(
-            fixed("/usr/local/bin/playwright-cli open https://example.com"),
+            a.command,
             "/usr/local/bin/playwright-cli open --headed https://example.com"
         );
     }
 
     #[test]
     fn handles_relative_path_invocation() {
-        assert_eq!(
-            fixed("./playwright-cli open https://example.com"),
-            "./playwright-cli open --headed https://example.com"
-        );
+        let a = run("./playwright-cli open https://example.com");
+        assert_eq!(a.command, "./playwright-cli open --headed https://example.com");
     }
 
     #[test]
     fn handles_env_prefix() {
+        let a = run("DEBUG=1 playwright-cli open https://example.com");
         assert_eq!(
-            fixed("DEBUG=1 playwright-cli open https://example.com"),
+            a.command,
             "DEBUG=1 playwright-cli open --headed https://example.com"
         );
     }
@@ -391,33 +457,35 @@ mod tests {
 
     #[test]
     fn rewrites_only_the_offending_statement() {
+        let a = run("echo hi && playwright-cli open https://example.com");
         assert_eq!(
-            fixed("echo hi && playwright-cli open https://example.com"),
+            a.command,
             "echo hi && playwright-cli open --headed https://example.com"
         );
+        assert_eq!(a.rewrites, 1);
     }
 
     #[test]
     fn does_not_pull_open_from_a_different_statement() {
-        // The bare `open` in the second statement must not satisfy the first
-        // playwright-cli invocation (which only has `codegen` as its subcommand).
-        assert!(fix_command("playwright-cli codegen url; open file.txt").is_none());
+        let a = run("playwright-cli codegen url; open file.txt");
+        assert!(!a.open_detected);
     }
 
     #[test]
     fn rewrites_multiple_invocations() {
+        let a = run("playwright-cli open a; playwright-cli open b");
         assert_eq!(
-            fixed("playwright-cli open a; playwright-cli open b"),
+            a.command,
             "playwright-cli open --headed a; playwright-cli open --headed b"
         );
+        assert_eq!(a.rewrites, 2);
     }
-
-    // -- PowerShell-style separators -----------------------------------------
 
     #[test]
     fn handles_powershell_semicolon_chain() {
+        let a = run("Write-Host hi; playwright-cli open https://example.com");
         assert_eq!(
-            fixed("Write-Host hi; playwright-cli open https://example.com"),
+            a.command,
             "Write-Host hi; playwright-cli open --headed https://example.com"
         );
     }
@@ -425,19 +493,111 @@ mod tests {
     // -- Quoting edge cases --------------------------------------------------
 
     #[test]
-    fn ignores_open_appearing_inside_a_quoted_url() {
-        // The url 'https://example.com/open' is a single token; "open" should
-        // not be recognized as the subcommand. Without an `open` subcommand, no
-        // rewrite happens.
-        assert!(fix_command("playwright-cli codegen 'https://example.com/open'").is_none());
+    fn ignores_open_inside_a_quoted_url() {
+        let a = run("playwright-cli codegen 'https://example.com/open'");
+        assert!(!a.open_detected);
     }
 
     #[test]
     fn quoted_open_argument_still_counts_as_subcommand() {
-        // 'open' as a quoted single token is still the literal string `open`.
+        let a = run("playwright-cli 'open' https://example.com");
+        assert_eq!(a.command, "playwright-cli 'open' --headed https://example.com");
+        assert_eq!(a.rewrites, 1);
+    }
+
+    // -- Context message -----------------------------------------------------
+
+    #[test]
+    fn context_mentions_resize_tip_when_rewriting() {
+        let ctx = build_context(1, false);
+        assert!(ctx.contains("--headed"));
+        assert!(ctx.contains("playwright-cli resize 1600 900"));
+    }
+
+    #[test]
+    fn context_mentions_resize_tip_when_only_detected() {
+        let ctx = build_context(0, false);
+        assert!(!ctx.contains("rewrote"));
+        assert!(!ctx.contains("added `--headed`"));
+        assert!(ctx.contains("playwright-cli resize 1600 900"));
+    }
+
+    #[test]
+    fn context_mentions_bypass_state() {
+        let ctx = build_context(0, true);
+        assert!(ctx.contains("no-rewrite"));
+        assert!(ctx.contains("playwright-cli resize 1600 900"));
+    }
+
+    #[test]
+    fn context_singular_vs_plural() {
+        assert!(build_context(1, false).contains("1 `playwright-cli open` invocation "));
+        assert!(build_context(2, false).contains("2 `playwright-cli open` invocations"));
+    }
+
+    // -- Additional edge cases ------------------------------------------------
+
+    #[test]
+    fn no_headed_flag_does_not_count_as_headed() {
+        // A hypothetical `--no-headed` flag must not satisfy the rule.
+        let a = run("playwright-cli --no-headed open https://example.com");
+        assert_eq!(a.rewrites, 1);
         assert_eq!(
-            fixed("playwright-cli 'open' https://example.com"),
-            "playwright-cli 'open' --headed https://example.com"
+            a.command,
+            "playwright-cli --no-headed open --headed https://example.com"
         );
+    }
+
+    #[test]
+    fn longer_flag_starting_with_headed_does_not_count() {
+        // `--headedness` is not the same flag as `--headed`.
+        let a = run("playwright-cli open --headedness whatever https://example.com");
+        assert_eq!(a.rewrites, 1);
+        assert!(a.command.contains("open --headed --headedness"));
+    }
+
+    #[test]
+    fn handles_pipe_separator() {
+        // The pipe ends the playwright-cli statement, but `open` was already seen.
+        let a = run("playwright-cli open https://example.com | tee log");
+        assert_eq!(
+            a.command,
+            "playwright-cli open --headed https://example.com | tee log"
+        );
+    }
+
+    #[test]
+    fn mixed_invocations_only_rewrite_offenders() {
+        let a = run("playwright-cli open --headed a; playwright-cli open b");
+        assert!(a.open_detected);
+        assert_eq!(a.rewrites, 1);
+        assert_eq!(
+            a.command,
+            "playwright-cli open --headed a; playwright-cli open --headed b"
+        );
+    }
+
+    #[test]
+    fn playwright_cli_with_no_args_is_a_no_op() {
+        let a = run("playwright-cli");
+        assert!(!a.open_detected);
+        assert_eq!(a.rewrites, 0);
+    }
+
+    #[test]
+    fn handles_newline_separated_commands() {
+        let a = run("echo hi\nplaywright-cli open https://example.com");
+        assert_eq!(
+            a.command,
+            "echo hi\nplaywright-cli open --headed https://example.com"
+        );
+    }
+
+    #[test]
+    fn preserves_command_when_no_open_in_any_invocation() {
+        let cmd = "playwright-cli codegen url; playwright-cli --help";
+        let a = run(cmd);
+        assert!(!a.open_detected);
+        assert_eq!(a.command, cmd);
     }
 }

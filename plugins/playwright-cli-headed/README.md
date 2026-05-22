@@ -1,15 +1,14 @@
 # playwright-cli-headed plugin
 
-A Rust PreToolUse hook for **Bash** and **PowerShell** tool calls that auto-injects `--headed` into any `playwright-cli open` invocation that is missing it.
+A Rust PreToolUse hook for **Bash** and **PowerShell** tool calls that auto-injects `--headed` into any `playwright-cli open` invocation that is missing it, and reminds Claude to set a standard viewport size before screenshotting.
 
-**Why:** when Claude drives Playwright through `playwright-cli open`, the browser must be visible so the user can actually see what's happening. Headless invocations defeat the point and silently change behavior. This hook enforces `--headed` without a wasted round-trip.
+**Why:** when Claude drives Playwright through `playwright-cli open`, the browser must be visible so the user can actually see what's happening. Headless invocations defeat the point and silently change behavior. This hook enforces `--headed` without a wasted round-trip and surfaces a screenshot-compatibility tip.
 
 **Behavior:**
 - Detects `playwright-cli ... open ...` invocations at word boundaries (handles full paths like `/usr/local/bin/playwright-cli`, env prefixes like `DEBUG=1 playwright-cli ...`, and chained statements like `echo hi && playwright-cli open ...`)
-- If `--headed` (or `--headed=...`) is missing, splices ` --headed` immediately after the `open` token, leaving the rest of the command byte-for-byte unchanged
-- Returns `updatedInput` so Claude Code executes the corrected command transparently
-- Injects `additionalContext` so Claude sees the rule and stops omitting `--headed`
-- Bypass: add `[no-rewrite]` to the tool description
+- If `--headed` (or `--headed=...`) is missing, splices ` --headed` immediately after the `open` token, leaving the rest of the command byte-for-byte unchanged → returns `updatedInput` so Claude Code executes the corrected command transparently
+- Whenever `playwright-cli open` is detected (rewrite or not), injects an `additionalContext` system reminder recommending `playwright-cli resize 1600 900` for consistent screenshot dimensions
+- Bypass rewriting (but not the tip): add `[no-rewrite]` to the tool description
 
 **Skipped cases (no rewrite):**
 - `--headed` already present (anywhere in the invocation, including `--headed=true`)
