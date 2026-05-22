@@ -52,7 +52,7 @@ fn passes_for_bash_tool() {
         h["updatedInput"]["command"]
             .as_str()
             .unwrap()
-            .contains("printf '\\n\\n\\n\\n'")
+            .contains("printf '\\n\\n'")
     );
 }
 
@@ -171,7 +171,7 @@ fn rewrite_preserves_other_tool_input_fields() {
     let (stdout, _) = run_hook(&input.to_string());
     let h = hook_output(&stdout);
     let updated = &h["updatedInput"];
-    assert!(updated["command"].as_str().unwrap().contains("printf '\\n\\n\\n\\n'"));
+    assert!(updated["command"].as_str().unwrap().contains("printf '\\n\\n'"));
     assert_eq!(updated["description"], "chain test");
     assert_eq!(updated["timeout"], 30000);
 }
@@ -203,5 +203,5 @@ fn rewrite_produces_valid_chain_structure() {
     // && should appear twice (original + injected)
     assert_eq!(cmd.matches("&&").count(), 2, "cmd={cmd}");
     // Exactly one printf separator
-    assert_eq!(cmd.matches("printf '\\n\\n\\n\\n'").count(), 1);
+    assert_eq!(cmd.matches("printf '\\n\\n'").count(), 1);
 }
