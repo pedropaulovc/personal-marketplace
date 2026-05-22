@@ -1,6 +1,6 @@
 # command-chain-separator plugin
 
-A Rust PreToolUse hook for **Bash** that injects a visible `=========` line between commands chained with `&&` or `;`, so per-command output is easy to read in long chains.
+A Rust PreToolUse hook for **Bash** that injects four blank lines between commands chained with `&&` or `;`, so per-command output is easy to read in long chains.
 
 **Rewrite:**
 
@@ -9,14 +9,14 @@ A Rust PreToolUse hook for **Bash** that injects a visible `=========` line betw
 npm install && npm run build && npm test
 
 # output (what actually executes)
-npm install && printf '\n\n ========= \n\n' && npm run build && printf '\n\n ========= \n\n' && npm test
+npm install && printf '\n\n\n\n' && npm run build && printf '\n\n\n\n' && npm test
 ```
 
 Same idea for `;`-separated commands. `printf` (not `echo`) is used so the `\n` escapes render as real newlines on every shell; single-quoting keeps the backslashes literal until printf consumes them.
 
 **Behavior:**
 - Only matches the `Bash` tool
-- Splices ` printf '\n\n ========= \n\n' <op>` *after* each top-level `&&` or `;`, preserving the original operator so chain semantics don't change (`&&` still short-circuits)
+- Splices ` printf '\n\n\n\n' <op>` *after* each top-level `&&` or `;`, preserving the original operator so chain semantics don't change (`&&` still short-circuits)
 - Quote-aware: separators inside `'...'`, `"..."`, `` `...` ``, `$'...'`, `$(...)`, `${...}`, and `(...)` subshells are ignored
 - Bails out silently (no rewrite) on commands containing constructs where splicing would break semantics:
   - Heredocs (`<<EOF`, `<<-EOF`)
