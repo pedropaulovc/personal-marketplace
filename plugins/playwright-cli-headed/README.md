@@ -1,0 +1,26 @@
+# playwright-cli-headed plugin
+
+A Rust PreToolUse hook for **Bash** and **PowerShell** tool calls that auto-injects `--headed` into any `playwright-cli open` invocation that is missing it.
+
+**Why:** when Claude drives Playwright through `playwright-cli open`, the browser must be visible so the user can actually see what's happening. Headless invocations defeat the point and silently change behavior. This hook enforces `--headed` without a wasted round-trip.
+
+**Behavior:**
+- Detects `playwright-cli ... open ...` invocations at word boundaries (handles full paths like `/usr/local/bin/playwright-cli`, env prefixes like `DEBUG=1 playwright-cli ...`, and chained statements like `echo hi && playwright-cli open ...`)
+- If `--headed` (or `--headed=...`) is missing, splices ` --headed` immediately after the `open` token, leaving the rest of the command byte-for-byte unchanged
+- Returns `updatedInput` so Claude Code executes the corrected command transparently
+- Injects `additionalContext` so Claude sees the rule and stops omitting `--headed`
+- Bypass: add `[no-rewrite]` to the tool description
+
+**Skipped cases (no rewrite):**
+- `--headed` already present (anywhere in the invocation, including `--headed=true`)
+- Subcommand is not `open` (e.g. `playwright-cli codegen ...`)
+- A different binary (`playwright`, `npx playwright`) — only the literal `playwright-cli` is matched
+- `open` appears only inside a quoted token (e.g. a URL path)
+
+## Build
+
+```
+python3 hooks/build-hooks.py
+```
+
+Cross-compiles the Rust binary for Linux x86_64 and Windows x86_64 and copies the outputs to `hooks/bin/`. Run after any change to the Rust source or when bumping the plugin version.

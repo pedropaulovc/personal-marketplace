@@ -45,6 +45,10 @@
     {
       "name": "no-fetch",
       "source": "./plugins/no-fetch"
+    },
+    {
+      "name": "playwright-cli-headed",
+      "source": "./plugins/playwright-cli-headed"
     }
   ]
 }

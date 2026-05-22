@@ -1,0 +1,13 @@
+{
+  "name": "playwright-cli-headed",
+  "description": "PreToolUse hook that auto-injects --headed into `playwright-cli open` invocations in Bash/PowerShell commands",
+  "version": "0.1.0",
+  "author": {
+    "name": "Pedro Paulo Vezza Campos",
+    "email": "pedro@vezza.com.br"
+  },
+  "homepage": "https://github.com/pedropaulovc/agents-plugins",
+  "repository": "https://github.com/pedropaulovc/agents-plugins",
+  "license": "MIT",
+  "keywords": ["hook", "playwright", "browser", "headed"]
+}
