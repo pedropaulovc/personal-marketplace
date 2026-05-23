@@ -131,7 +131,11 @@ fn main() {
          Before stopping, explicitly report to the user each shortcut or assumption. \
          For each: (1) what exactly you did and where, (2) why you chose this approach, \
          (3) what a complete solution looks like. Be specific — the user needs to make \
-         an informed judgement call.",
+         an informed judgement call.\n\n\
+         No explanation is needed if the flagged expression is itself a preventative \
+         measure against the thing it names (e.g. code that detects a placeholder and \
+         throws, a test asserting no TODO remains, a guard rejecting hardcoded values). \
+         In that case, briefly note it and stop.",
         list
     );
 
