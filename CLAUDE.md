@@ -1,6 +1,7 @@
 ## Plugins
 
 - Any changes to plugin code must also bump the plugin's version in its `plugin.json`, NOT the marketplace version.
+- When adding a new plugin (or renaming/removing one), also update the "All plugins" table in `README.md` to keep it in sync with `.claude-plugin/marketplace.json`. Skip this only if the user explicitly says so.
 - When bumping the **superpowers** plugin version, also run:
   ```
   python3 plugins/superpowers/hooks/build-hooks.py
